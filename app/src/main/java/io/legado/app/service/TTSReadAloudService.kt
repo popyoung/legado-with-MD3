@@ -199,7 +199,6 @@ class TTSReadAloudService : BaseReadAloudService(), TextToSpeech.OnInitListener 
                     && readAloudNumber + 1 > it.getReadLength(pageIndex + 1)
                 ) {
                     pageIndex++
-                    ReadBook.moveToNextPage()
                 }
                 upTtsProgress(readAloudNumber + 1)
                 upMediaMetadata(showContent = true)
@@ -221,7 +220,6 @@ class TTSReadAloudService : BaseReadAloudService(), TextToSpeech.OnInitListener 
                     && readAloudNumber + start > it.getReadLength(pageIndex + 1)
                 ) {
                     pageIndex++
-                    ReadBook.moveToNextPage()
                     upTtsProgress(readAloudNumber + start)
                 }
             }

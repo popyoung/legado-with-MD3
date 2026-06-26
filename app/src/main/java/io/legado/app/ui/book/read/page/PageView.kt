@@ -23,6 +23,7 @@ import io.legado.app.model.ReadBook
 import io.legado.app.ui.book.read.ReadBookActivity
 import io.legado.app.ui.book.read.page.entities.TextLine
 import io.legado.app.ui.book.read.page.entities.TextPage
+import io.legado.app.ui.book.read.page.entities.TextParagraph
 import io.legado.app.ui.book.read.page.entities.TextPos
 import io.legado.app.ui.book.read.page.provider.ChapterProvider
 import io.legado.app.ui.widget.BatteryView
@@ -442,6 +443,10 @@ class PageView(context: Context) : FrameLayout(context) {
      */
     fun resetPageOffset() {
         binding.contentTextView.resetPageOffset()
+    }
+
+    fun followReadAloudParagraph(paragraph: TextParagraph): Boolean {
+        return binding.contentTextView.followReadAloudParagraph(paragraph)
     }
 
     /**

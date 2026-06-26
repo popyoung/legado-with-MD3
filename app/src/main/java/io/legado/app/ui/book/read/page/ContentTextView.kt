@@ -15,6 +15,7 @@ import io.legado.app.ui.association.OpenUrlConfirmActivity
 import io.legado.app.ui.book.read.page.delegate.PageDelegate
 import io.legado.app.ui.book.read.page.entities.TextLine
 import io.legado.app.ui.book.read.page.entities.TextPage
+import io.legado.app.ui.book.read.page.entities.TextParagraph
 import io.legado.app.ui.book.read.page.entities.TextPos
 import io.legado.app.ui.book.read.page.entities.column.BaseColumn
 import io.legado.app.ui.book.read.page.entities.column.ButtonColumn
@@ -64,6 +65,7 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
     private var pageOffset = 0
     private var autoPager: AutoPager? = null
     private var isScroll = false
+    private var readAloudFollowActive = false
     private val renderRunnable by lazy { Runnable { preRenderPage() } }
     private var lastClickTime = 0L
     private var doubleClick = false
@@ -116,7 +118,11 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
     private fun drawPage(canvas: Canvas) {
         var relativeOffset = relativeOffset(0)
         textPage.draw(this, canvas, relativeOffset)
-        if (!callBack.isScroll) return
+        if (!drawContinuousPages()) return
+        if (readAloudFollowActive && !callBack.isScroll) {
+            drawReadAloudFollowPages(canvas, relativeOffset)
+            return
+        }
         //滚动翻页
         if (!pageFactory.hasNext()) return
         val textPage1 = relativeDrawPage(1)
@@ -135,6 +141,19 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
         return when (relativePos) {
             1 -> textChapter.getPage(textPage.index + 1) ?: pageFactory.nextPage
             else -> textChapter.getPage(textPage.index + 2) ?: pageFactory.nextPlusPage
+        }
+    }
+
+    private fun drawReadAloudFollowPages(canvas: Canvas, currentOffset: Float) {
+        val textChapter = textPage.getTextChapter()
+        var relativeOffset = currentOffset
+        val textPage1 = textChapter.getPage(textPage.index + 1) ?: return
+        relativeOffset += textPage.height
+        textPage1.draw(this, canvas, relativeOffset)
+        val textPage2 = textChapter.getPage(textPage.index + 2) ?: return
+        relativeOffset += textPage1.height
+        if (relativeOffset < ChapterProvider.visibleHeight) {
+            textPage2.draw(this, canvas, relativeOffset)
         }
     }
 
@@ -218,6 +237,48 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
      */
     fun resetPageOffset() {
         pageOffset = 0
+        readAloudFollowActive = false
+    }
+
+    fun followReadAloudParagraph(paragraph: TextParagraph): Boolean {
+        val firstLine = paragraph.textLines.firstOrNull() ?: return false
+        val lastLine = paragraph.textLines.lastOrNull() ?: return false
+        if (firstLine.textPage.index != textPage.index) {
+            return false
+        }
+        val paragraphTop = lineTopInContinuousPage(firstLine, textPage.index)
+        val paragraphBottom = lineBottomInContinuousPage(lastLine, textPage.index)
+        pageOffset = ReadAloudVisualPositioner.calculateOffset(
+            paragraphTop = paragraphTop,
+            paragraphBottom = paragraphBottom,
+            visibleTop = ChapterProvider.paddingTop.toFloat(),
+            visibleHeight = ChapterProvider.visibleHeight.toFloat(),
+            currentOffset = pageOffset.toFloat()
+        )
+        readAloudFollowActive = true
+        postInvalidate()
+        return true
+    }
+
+    private fun lineTopInContinuousPage(line: TextLine, firstPageIndex: Int): Float {
+        return pageTopInContinuousPage(line.textPage.index, firstPageIndex) + line.lineTop
+    }
+
+    private fun lineBottomInContinuousPage(line: TextLine, firstPageIndex: Int): Float {
+        return pageTopInContinuousPage(line.textPage.index, firstPageIndex) + line.lineBottom
+    }
+
+    private fun pageTopInContinuousPage(pageIndex: Int, firstPageIndex: Int): Float {
+        val textChapter = textPage.getTextChapter()
+        var top = 0f
+        for (index in firstPageIndex until pageIndex) {
+            top += textChapter.getPage(index)?.height ?: 0f
+        }
+        return top
+    }
+
+    private fun drawContinuousPages(): Boolean {
+        return callBack.isScroll || readAloudFollowActive
     }
 
     /**

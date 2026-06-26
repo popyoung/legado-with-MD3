@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
     inputs:
       build_variant:
-        description: "手动运行任务"
+        description: "Manual task"
         required: true
         default: "arm64-v8a-noR8"
         type: choice
@@ -54,8 +54,8 @@ jobs:
       - name: Compile app debug Kotlin
         run: ./gradlew --no-configuration-cache :app:compileAppDebugKotlin
 
-      - name: Test read aloud paragraph highlighting
-        run: ./gradlew --no-configuration-cache :app:testAppDebugUnitTest --tests "io.legado.app.ui.book.read.page.ReadAloudParagraphHighlighterTest"
+      - name: Test read aloud visual behavior
+        run: ./gradlew --no-configuration-cache :app:testAppDebugUnitTest --tests "io.legado.app.ui.book.read.page.ReadAloudParagraphHighlighterTest" --tests "io.legado.app.ui.book.read.page.ReadAloudVisualPositionerTest"
 
   build-apk:
     name: Build ${{ inputs.build_variant }} APK

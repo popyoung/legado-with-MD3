@@ -276,6 +276,7 @@ class ReadBookActivity : BaseReadBookActivity(),
     private val prevPageDebounce by lazy { Debounce { keyPage(PageDirection.PREV) } }
     private var bookChanged = false
     private var pageChanged = false
+    private var readAloudVisualFollowPaused = false
     private var readAloudHighlightedPageIndices = emptySet<Int>()
     private val handler by lazy { buildMainHandler() }
     private val screenOffRunnable by lazy { Runnable { keepScreenOn(false) } }
@@ -1193,8 +1194,11 @@ class ReadBookActivity : BaseReadBookActivity(),
     /**
      * 页面改变
      */
-    override fun pageChanged() {
+    override fun pageChanged(fromReadAloud: Boolean) {
         pageChanged = true
+        if (BaseReadAloudService.isPlay() && !fromReadAloud) {
+            readAloudVisualFollowPaused = true
+        }
         binding.readView.onPageChange()
         handler.post {
             upSeekBarProgress()
@@ -1477,6 +1481,7 @@ class ReadBookActivity : BaseReadBookActivity(),
         autoPageStop()
         when {
             !BaseReadAloudService.isRun -> {
+                readAloudVisualFollowPaused = false
                 ReadAloud.upReadAloudClass()
                 val scrollPageAnim = ReadBook.pageAnim() == 3
                 if (scrollPageAnim) {
@@ -1500,6 +1505,7 @@ class ReadBookActivity : BaseReadBookActivity(),
             }
 
             BaseReadAloudService.pause -> {
+                readAloudVisualFollowPaused = false
                 val scrollPageAnim = ReadBook.pageAnim() == 3
                 if (scrollPageAnim && pageChanged) {
                     pageChanged = false
@@ -1916,10 +1922,10 @@ class ReadBookActivity : BaseReadBookActivity(),
             }
         }
         observeEventSticky<Int>(EventBus.TTS_PROGRESS) { chapterStart ->
-            lifecycleScope.launch(IO) {
+            lifecycleScope.launch {
                 if (BaseReadAloudService.isPlay()) {
                     ReadBook.curTextChapter?.let { textChapter ->
-                        updateReadAloudParagraphSpan(chapterStart, textChapter)
+                        updateReadAloudVisual(chapterStart, textChapter)
                     }
                 }
             }
@@ -1951,19 +1957,38 @@ class ReadBookActivity : BaseReadBookActivity(),
         }
     }
 
-    private fun updateReadAloudParagraphSpan(
+    private fun updateReadAloudVisual(
         chapterStart: Int,
         textChapter: TextChapter
     ) {
         val paragraph = findReadAloudParagraph(textChapter, chapterStart) ?: return
-        upContent(resetPageOffset = false) {
-            readAloudHighlightedPageIndices = ReadAloudParagraphHighlighter.update(
-                paragraph = paragraph,
-                highlightedPageIndices = readAloudHighlightedPageIndices
-            ) { index ->
-                textChapter.getPage(index)
+        val pageIndex = paragraph.firstLine.textPage.index
+        if (readAloudVisualFollowPaused) {
+            if (ReadBook.durPageIndex == pageIndex) {
+                upContent(resetPageOffset = false) {
+                    updateReadAloudParagraphSpan(textChapter, paragraph)
+                    binding.readView.curPage.invalidateContentView()
+                }
             }
-            binding.readView.curPage.invalidateContentView()
+            return
+        }
+
+        if (ReadBook.durPageIndex == pageIndex) {
+            upContent(resetPageOffset = false) {
+                updateReadAloudParagraphSpan(textChapter, paragraph)
+                binding.readView.post {
+                    binding.readView.followReadAloudParagraph(paragraph)
+                }
+            }
+        } else {
+            ReadBook.withReadAloudPageChange {
+                ReadBook.skipToPage(pageIndex) {
+                    updateReadAloudParagraphSpan(textChapter, paragraph)
+                    binding.readView.post {
+                        binding.readView.followReadAloudParagraph(paragraph)
+                    }
+                }
+            }
         }
     }
 
@@ -1982,6 +2007,18 @@ class ReadBookActivity : BaseReadBookActivity(),
             textChapter.getPage(index)
         }
         readAloudHighlightedPageIndices = emptySet()
+    }
+
+    private fun updateReadAloudParagraphSpan(
+        textChapter: TextChapter,
+        paragraph: TextParagraph
+    ) {
+        readAloudHighlightedPageIndices = ReadAloudParagraphHighlighter.update(
+            paragraph = paragraph,
+            highlightedPageIndices = readAloudHighlightedPageIndices
+        ) { index ->
+            textChapter.getPage(index)
+        }
     }
 
     private fun upScreenTimeOut() {
