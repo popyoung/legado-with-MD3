@@ -345,7 +345,9 @@ abstract class BaseReadAloudService : BaseService(),
                 }
                 if (readAloudNumber < it.getReadLength(pageIndex)) {
                     pageIndex--
-                    ReadBook.moveToPrevPage()
+                    ReadBook.withReadAloudPageChange {
+                        ReadBook.moveToPrevPage()
+                    }
                 }
             }
             upTtsProgress(readAloudNumber + 1)
@@ -353,7 +355,9 @@ abstract class BaseReadAloudService : BaseService(),
             play()
         } else {
             toLast = true
-            ReadBook.moveToPrevChapter(true)
+            ReadBook.withReadAloudPageChange {
+                ReadBook.moveToPrevChapter(true)
+            }
         }
     }
 
@@ -372,7 +376,9 @@ abstract class BaseReadAloudService : BaseService(),
                     && readAloudNumber >= it.getReadLength(pageIndex + 1)
                 ) {
                     pageIndex++
-                    ReadBook.moveToNextPage()
+                    ReadBook.withReadAloudPageChange {
+                        ReadBook.moveToNextPage()
+                    }
                 }
             }
             upTtsProgress(readAloudNumber + 1)
@@ -708,14 +714,19 @@ abstract class BaseReadAloudService : BaseService(),
     open fun prevChapter() {
         toLast = false
         resumeReadAloudInternal()
-        ReadBook.moveToPrevChapter(true, toLast = false)
+        ReadBook.withReadAloudPageChange {
+            ReadBook.moveToPrevChapter(true, toLast = false)
+        }
     }
 
     open fun nextChapter() {
         ReadBook.upReadTime()
         AppLog.putDebug("${ReadBook.curTextChapter?.chapter?.title} 朗读结束跳转下一章并朗读")
         resumeReadAloudInternal()
-        if (!ReadBook.moveToNextChapter(true)) {
+        val moved = ReadBook.withReadAloudPageChange {
+            ReadBook.moveToNextChapter(true)
+        }
+        if (!moved) {
             stopSelf()
         }
     }

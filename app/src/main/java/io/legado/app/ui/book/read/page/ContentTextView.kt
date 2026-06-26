@@ -12,6 +12,7 @@ import io.legado.app.help.book.isOnLineTxt
 import io.legado.app.model.ReadBook
 import io.legado.app.ui.association.OpenUrlConfirmActivity
 import io.legado.app.ui.book.read.page.delegate.PageDelegate
+import io.legado.app.ui.book.read.page.entities.TextParagraph
 import io.legado.app.ui.book.read.page.entities.TextLine
 import io.legado.app.ui.book.read.page.entities.TextPage
 import io.legado.app.ui.book.read.page.entities.TextPos
@@ -66,6 +67,7 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
     private var pageOffset = 0
     private var autoPager: AutoPager? = null
     private var isScroll = false
+    private var readAloudFollowActive = false
     private val renderRunnable by lazy { Runnable { preRenderPage() } }
     private var lastClickTime = 0L
     private var doubleClick = false
@@ -118,7 +120,7 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
     private fun drawPage(canvas: Canvas) {
         var relativeOffset = relativeOffset(0)
         textPage.draw(this, canvas, relativeOffset)
-        if (!requireCallBack.isScroll) return
+        if (!drawContinuousPages()) return
         //滚动翻页
         if (!pageFactory.hasNext()) return
         val textPage1 = relativePage(1)
@@ -212,6 +214,47 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
      */
     fun resetPageOffset() {
         pageOffset = 0
+        readAloudFollowActive = false
+    }
+
+    fun followReadAloudParagraph(paragraph: TextParagraph): Boolean {
+        val firstLine = paragraph.textLines.firstOrNull() ?: return false
+        val lastLine = paragraph.textLines.lastOrNull() ?: return false
+        if (firstLine.textPage.index != textPage.index) {
+            return false
+        }
+        val paragraphTop = lineTopInContinuousPage(firstLine, textPage.index)
+        val paragraphBottom = lineBottomInContinuousPage(lastLine, textPage.index)
+        pageOffset = ReadAloudVisualPositioner.calculateOffset(
+            paragraphTop = paragraphTop,
+            paragraphBottom = paragraphBottom,
+            visibleTop = ChapterProvider.paddingTop.toFloat(),
+            visibleHeight = ChapterProvider.visibleHeight.toFloat()
+        )
+        readAloudFollowActive = true
+        postInvalidate()
+        return true
+    }
+
+    private fun lineTopInContinuousPage(line: TextLine, firstPageIndex: Int): Float {
+        return pageTopInContinuousPage(line.textPage.index, firstPageIndex) + line.lineTop
+    }
+
+    private fun lineBottomInContinuousPage(line: TextLine, firstPageIndex: Int): Float {
+        return pageTopInContinuousPage(line.textPage.index, firstPageIndex) + line.lineBottom
+    }
+
+    private fun pageTopInContinuousPage(pageIndex: Int, firstPageIndex: Int): Float {
+        val textChapter = textPage.getTextChapter()
+        var top = 0f
+        for (index in firstPageIndex until pageIndex) {
+            top += textChapter.getPage(index)?.height ?: 0f
+        }
+        return top
+    }
+
+    private fun drawContinuousPages(): Boolean {
+        return requireCallBack.isScroll || readAloudFollowActive
     }
 
     /**

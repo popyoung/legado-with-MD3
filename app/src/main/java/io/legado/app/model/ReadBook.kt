@@ -108,6 +108,16 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
     val preDownloadSemaphore = Semaphore(2)
 
     val executor = globalExecutor
+    private var readAloudPageChangeDepth = 0
+
+    fun <T> withReadAloudPageChange(block: () -> T): T {
+        readAloudPageChangeDepth++
+        return try {
+            block()
+        } finally {
+            readAloudPageChangeDepth--
+        }
+    }
 
     private val ioScope = CoroutineScope(SupervisorJob() + IO)
 
@@ -596,9 +606,10 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
      * 当前页面变化
      */
     private fun curPageChanged(pageChanged: Boolean = false) {
-        callBack?.pageChanged()
+        val fromReadAloud = readAloudPageChangeDepth > 0
+        callBack?.pageChanged(fromReadAloud)
         curTextChapter?.let {
-            if (BaseReadAloudService.isRun && it.isCompleted) {
+            if (BaseReadAloudService.isRun && BaseReadAloudService.pause && it.isCompleted) {
                 val scrollPageAnim = pageAnim() == 3
                 if (scrollPageAnim && pageChanged) {
                     ReadAloud.pause(appCtx)
@@ -1250,7 +1261,7 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
             success: (() -> Unit)? = null
         )
 
-        fun pageChanged()
+        fun pageChanged(fromReadAloud: Boolean)
 
         fun contentLoadFinish()
 

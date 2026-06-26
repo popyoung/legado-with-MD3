@@ -41,6 +41,7 @@ import io.legado.app.ui.book.read.page.ContentTextView
 import io.legado.app.ui.book.read.page.ReadView
 import io.legado.app.ui.book.read.page.entities.PageDirection
 import io.legado.app.ui.book.read.page.entities.TextChapter
+import io.legado.app.ui.book.read.page.entities.TextParagraph
 import io.legado.app.ui.book.read.page.provider.ChapterProvider
 import io.legado.app.ui.book.read.page.provider.TextPageFactory
 import io.legado.app.ui.config.readConfig.ReadConfig
@@ -87,6 +88,7 @@ class ReadBookController(
     // Page state — moved from Activity
     var pageChanged: Boolean = false
         private set
+    private var readAloudVisualFollowPaused = false
 
     fun resetPageChanged() {
         pageChanged = false
@@ -667,16 +669,8 @@ class ReadBookController(
             }
 
             is ReadBookEffect.UpTtsAloudSpan -> {
-                activity.lifecycleScope.launch(IO) {
-                    if (BaseReadAloudService.isPlay()) {
-                        ReadBook.curTextChapter?.let { textChapter ->
-                            val pageIndex = ReadBook.durPageIndex
-                            val aloudSpanStart =
-                                effect.chapterStart - textChapter.getReadLength(pageIndex)
-                            textChapter.getPage(pageIndex)?.upPageAloudSpan(aloudSpanStart)
-                            refs?.readView?.upContent()
-                        }
-                    }
+                if (BaseReadAloudService.isPlay()) {
+                    updateReadAloudVisual(effect.chapterStart)
                 }
             }
 
@@ -688,6 +682,9 @@ class ReadBookController(
 
             is ReadBookEffect.PageChanged -> {
                 pageChanged = true
+                if (BaseReadAloudService.isPlay() && !effect.fromReadAloud) {
+                    readAloudVisualFollowPaused = true
+                }
                 refs?.readView?.onPageChange()
                 viewModel.startBackupJob()
             }
@@ -847,10 +844,52 @@ class ReadBookController(
 
     // ── Key handling ──
 
+    private fun updateReadAloudVisual(chapterStart: Int) {
+        val textChapter = ReadBook.curTextChapter ?: return
+        val paragraph = findReadAloudParagraph(textChapter, chapterStart) ?: return
+        val pageIndex = paragraph.firstLine.textPage.index
+        val aloudSpanStart = chapterStart - textChapter.getReadLength(pageIndex)
+        textChapter.getPage(pageIndex)?.upPageAloudSpan(aloudSpanStart.coerceAtLeast(0))
+
+        val readView = refs?.readView ?: return
+        if (readAloudVisualFollowPaused) {
+            if (ReadBook.durPageIndex == pageIndex) {
+                readView.upContent(resetPageOffset = false)
+            }
+            return
+        }
+
+        if (ReadBook.durPageIndex == pageIndex) {
+            readView.upContent(resetPageOffset = false)
+            readView.post {
+                readView.followReadAloudParagraph(paragraph)
+            }
+        } else {
+            ReadBook.withReadAloudPageChange {
+                ReadBook.skipToPage(pageIndex) {
+                    readView.post {
+                        readView.followReadAloudParagraph(paragraph)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun findReadAloudParagraph(
+        textChapter: TextChapter,
+        chapterStart: Int
+    ): TextParagraph? {
+        val readPosition = chapterStart.coerceAtLeast(0)
+        return textChapter.paragraphs.firstOrNull { readPosition in it.chapterIndices }
+            ?: textChapter.paragraphs.firstOrNull { readPosition <= it.chapterPosition }
+            ?: textChapter.paragraphs.lastOrNull()
+    }
+
     private fun toggleReadAloud() {
         viewModel.onIntent(ReadBookIntent.StopAutoPage)
         when {
             !BaseReadAloudService.isRun -> {
+                readAloudVisualFollowPaused = false
                 ReadAloud.upReadAloudClass()
                 val scrollPageAnim = ReadBook.pageAnim() == 3
                 val readView = refs?.readView
@@ -875,6 +914,7 @@ class ReadBookController(
             }
 
             BaseReadAloudService.pause -> {
+                readAloudVisualFollowPaused = false
                 val scrollPageAnim = ReadBook.pageAnim() == 3
                 val readView = refs?.readView
                 if (scrollPageAnim && pageChanged && readView != null) {

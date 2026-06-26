@@ -21,6 +21,7 @@ import io.legado.app.databinding.ViewBookPageBinding
 import io.legado.app.help.config.ReadBookConfig
 import io.legado.app.model.ReadBook
 import io.legado.app.ui.book.read.page.entities.TextLine
+import io.legado.app.ui.book.read.page.entities.TextParagraph
 import io.legado.app.ui.book.read.page.entities.TextPage
 import io.legado.app.ui.book.read.page.entities.TextPos
 import io.legado.app.ui.book.read.page.provider.ChapterProvider
@@ -447,6 +448,10 @@ class PageView(
      */
     fun resetPageOffset() {
         binding.contentTextView.resetPageOffset()
+    }
+
+    fun followReadAloudParagraph(paragraph: TextParagraph): Boolean {
+        return binding.contentTextView.followReadAloudParagraph(paragraph)
     }
 
     /**

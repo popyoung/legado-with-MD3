@@ -932,11 +932,15 @@ class ReadBookViewModel(
                 _uiState.update { it.copy(isReadAloudRunning = false, isReadAloudPaused = false) }
             }
             is ReadBookIntent.ReadAloudNextParagraph -> ReadAloud.nextParagraph(context)
-            is ReadBookIntent.ReadAloudPrevChapter -> ReadBook.moveToPrevChapter(
-                upContent = true,
-                toLast = false
-            )
-            is ReadBookIntent.ReadAloudNextChapter -> ReadBook.moveToNextChapter(true)
+            is ReadBookIntent.ReadAloudPrevChapter -> ReadBook.withReadAloudPageChange {
+                ReadBook.moveToPrevChapter(
+                    upContent = true,
+                    toLast = false
+                )
+            }
+            is ReadBookIntent.ReadAloudNextChapter -> ReadBook.withReadAloudPageChange {
+                ReadBook.moveToNextChapter(true)
+            }
             is ReadBookIntent.SetReadAloudTtsTimer -> setReadAloudTtsTimer(intent.value)
             is ReadBookIntent.SaveReadAloudTtsTimer -> {
                 viewModelScope.launch { readAloudSettingsRepository.saveTtsTimer(intent.value) }
@@ -1525,9 +1529,9 @@ class ReadBookViewModel(
         }
     }
 
-    override fun pageChanged() {
+    override fun pageChanged(fromReadAloud: Boolean) {
         _uiState.update { syncFromReadBook(it) }
-        _effects.tryEmit(ReadBookEffect.PageChanged)
+        _effects.tryEmit(ReadBookEffect.PageChanged(fromReadAloud))
     }
 
     override fun contentLoadFinish() {

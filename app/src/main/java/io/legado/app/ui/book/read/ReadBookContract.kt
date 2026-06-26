@@ -549,7 +549,7 @@ sealed interface ReadBookEffect {
     data object UpAloudState : ReadBookEffect
     data object UpSeekBar : ReadBookEffect
     data object UpMenuView : ReadBookEffect
-    data object PageChanged : ReadBookEffect
+    data class PageChanged(val fromReadAloud: Boolean) : ReadBookEffect
     data object ContentLoadFinish : ReadBookEffect
     data class LayoutPageCompleted(val index: Int, val page: TextPage) : ReadBookEffect
     data object RefreshBookContent : ReadBookEffect

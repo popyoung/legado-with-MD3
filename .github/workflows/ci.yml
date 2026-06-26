@@ -40,3 +40,6 @@ jobs:
 
       - name: Compile app debug Kotlin
         run: ./gradlew :app:compileAppDebugKotlin
+
+      - name: Test read aloud visual positioning
+        run: ./gradlew :app:testAppDebugUnitTest --tests "io.legado.app.ui.book.read.page.ReadAloudVisualPositionerTest"

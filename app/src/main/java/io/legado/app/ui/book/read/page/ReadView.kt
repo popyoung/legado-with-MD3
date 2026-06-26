@@ -30,6 +30,7 @@ import io.legado.app.ui.book.read.page.delegate.SlidePageDelegate
 import io.legado.app.ui.book.read.page.entities.PageDirection
 import io.legado.app.ui.book.read.page.entities.TextChapter
 import io.legado.app.ui.book.read.page.entities.TextLine
+import io.legado.app.ui.book.read.page.entities.TextParagraph
 import io.legado.app.ui.book.read.page.entities.TextPage
 import io.legado.app.ui.book.read.page.entities.TextPos
 import io.legado.app.ui.book.read.page.entities.column.TextBaseColumn
@@ -693,6 +694,10 @@ class ReadView(
 
     fun getReadAloudPos(): Pair<Int, TextLine>? {
         return curPage.getReadAloudPos()
+    }
+
+    fun followReadAloudParagraph(paragraph: TextParagraph): Boolean {
+        return curPage.followReadAloudParagraph(paragraph)
     }
 
     fun invalidateTextPage() {
