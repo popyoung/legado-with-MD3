@@ -49,11 +49,14 @@ jobs:
       - name: Make Gradle wrapper executable
         run: chmod +x ./gradlew
 
+      - name: Remove Aliyun mirrors
+        run: sed -i '/maven.aliyun.com/d' settings.gradle
+
       - name: Compile app debug Kotlin
-        run: ./gradlew :app:compileAppDebugKotlin
+        run: ./gradlew --no-configuration-cache :app:compileAppDebugKotlin
 
       - name: Test read aloud visual positioning
-        run: ./gradlew :app:testAppDebugUnitTest --tests "io.legado.app.ui.book.read.page.ReadAloudVisualPositionerTest"
+        run: ./gradlew --no-configuration-cache :app:testAppDebugUnitTest --tests "io.legado.app.ui.book.read.page.ReadAloudVisualPositionerTest"
 
   build-apk:
     name: Build ${{ inputs.build_variant }} APK
@@ -82,14 +85,17 @@ jobs:
       - name: Make Gradle wrapper executable
         run: chmod +x ./gradlew
 
+      - name: Remove Aliyun mirrors
+        run: sed -i '/maven.aliyun.com/d' settings.gradle
+
       - name: Build selected APK
         run: |
           case "${{ inputs.build_variant }}" in
             debug)
-              ./gradlew :app:assembleAppDebug
+              ./gradlew --no-configuration-cache :app:assembleAppDebug
               ;;
             noR8)
-              ./gradlew :app:assembleAppNoR8
+              ./gradlew --no-configuration-cache :app:assembleAppNoR8
               ;;
             *)
               echo "Unknown build_variant: ${{ inputs.build_variant }}"

@@ -39,12 +39,15 @@ jobs:
       - name: Make Gradle wrapper executable
         run: chmod +x ./gradlew
 
+      - name: Remove Aliyun mirrors
+        run: sed -i '/maven.aliyun.com/d' settings.gradle
+
       - name: Build selected APK
         run: |
           if [ "${{ inputs.variant }}" = "debug" ]; then
-            ./gradlew :app:assembleAppDebug
+            ./gradlew --no-configuration-cache :app:assembleAppDebug
           else
-            ./gradlew :app:assembleAppNoR8
+            ./gradlew --no-configuration-cache :app:assembleAppNoR8
           fi
 
       - name: Upload APKs
