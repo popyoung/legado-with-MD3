@@ -6,11 +6,10 @@ on:
       variant:
         description: APK variant to build
         required: true
-        default: debug
+        default: arm64-v8a-noR8
         type: choice
         options:
-          - debug
-          - noR8
+          - arm64-v8a-noR8
 
 jobs:
   build:
@@ -43,17 +42,12 @@ jobs:
         run: sed -i '/maven.aliyun.com/d' settings.gradle
 
       - name: Build selected APK
-        run: |
-          if [ "${{ inputs.variant }}" = "debug" ]; then
-            ./gradlew --no-configuration-cache :app:assembleAppDebug
-          else
-            ./gradlew --no-configuration-cache :app:assembleAppNoR8
-          fi
+        run: ./gradlew --no-configuration-cache -Plegado.splitAbis=arm64-v8a :app:assembleAppNoR8
 
       - name: Upload APKs
         uses: actions/upload-artifact@v4
         with:
-          name: legado-${{ inputs.variant }}-apk
-          path: app/build/outputs/apk/**/*.apk
+          name: legado-${{ inputs.variant }}-unsigned-apk
+          path: app/build/outputs/apk/**/noR8/*arm64-v8a*.apk
           if-no-files-found: error
           retention-days: 14
