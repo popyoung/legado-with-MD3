@@ -38,6 +38,7 @@ import io.legado.app.receiver.NetworkChangedListener
 import io.legado.app.receiver.TimeBatteryReceiver
 import io.legado.app.service.BaseReadAloudService
 import io.legado.app.ui.book.read.page.ContentTextView
+import io.legado.app.ui.book.read.page.ReadAloudParagraphHighlighter
 import io.legado.app.ui.book.read.page.ReadView
 import io.legado.app.ui.book.read.page.entities.PageDirection
 import io.legado.app.ui.book.read.page.entities.TextChapter
@@ -89,6 +90,7 @@ class ReadBookController(
     var pageChanged: Boolean = false
         private set
     private var readAloudVisualFollowPaused = false
+    private var readAloudHighlightedPageIndices = emptySet<Int>()
 
     fun resetPageChanged() {
         pageChanged = false
@@ -662,8 +664,7 @@ class ReadBookController(
 
             is ReadBookEffect.UpAloudState -> {
                 ReadBook.curTextChapter?.let { textChapter ->
-                    val page = textChapter.getPageByReadPos(ReadBook.durChapterPos)
-                    page?.removePageAloudSpan()
+                    clearReadAloudParagraphSpan(textChapter)
                     refs?.readView?.upContent(resetPageOffset = false)
                 }
             }
@@ -848,25 +849,27 @@ class ReadBookController(
         val textChapter = ReadBook.curTextChapter ?: return
         val paragraph = findReadAloudParagraph(textChapter, chapterStart) ?: return
         val pageIndex = paragraph.firstLine.textPage.index
-        val aloudSpanStart = chapterStart - textChapter.getReadLength(pageIndex)
-        textChapter.getPage(pageIndex)?.upPageAloudSpan(aloudSpanStart.coerceAtLeast(0))
 
         val readView = refs?.readView ?: return
         if (readAloudVisualFollowPaused) {
             if (ReadBook.durPageIndex == pageIndex) {
                 readView.upContent(resetPageOffset = false)
+                updateReadAloudParagraphSpan(textChapter, paragraph)
+                readView.curPage.invalidateContentView()
             }
             return
         }
 
         if (ReadBook.durPageIndex == pageIndex) {
             readView.upContent(resetPageOffset = false)
+            updateReadAloudParagraphSpan(textChapter, paragraph)
             readView.post {
                 readView.followReadAloudParagraph(paragraph)
             }
         } else {
             ReadBook.withReadAloudPageChange {
                 ReadBook.skipToPage(pageIndex) {
+                    updateReadAloudParagraphSpan(textChapter, paragraph)
                     readView.post {
                         readView.followReadAloudParagraph(paragraph)
                     }
@@ -883,6 +886,25 @@ class ReadBookController(
         return textChapter.paragraphs.firstOrNull { readPosition in it.chapterIndices }
             ?: textChapter.paragraphs.firstOrNull { readPosition <= it.chapterPosition }
             ?: textChapter.paragraphs.lastOrNull()
+    }
+
+    private fun updateReadAloudParagraphSpan(
+        textChapter: TextChapter,
+        paragraph: TextParagraph
+    ) {
+        readAloudHighlightedPageIndices = ReadAloudParagraphHighlighter.update(
+            paragraph = paragraph,
+            highlightedPageIndices = readAloudHighlightedPageIndices
+        ) { index ->
+            textChapter.getPage(index)
+        }
+    }
+
+    private fun clearReadAloudParagraphSpan(textChapter: TextChapter) {
+        ReadAloudParagraphHighlighter.clear(readAloudHighlightedPageIndices) { index ->
+            textChapter.getPage(index)
+        }
+        readAloudHighlightedPageIndices = emptySet()
     }
 
     private fun toggleReadAloud() {

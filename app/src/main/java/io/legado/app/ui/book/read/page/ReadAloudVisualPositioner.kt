@@ -8,17 +8,24 @@ internal object ReadAloudVisualPositioner {
         paragraphTop: Float,
         paragraphBottom: Float,
         visibleTop: Float,
-        visibleHeight: Float
+        visibleHeight: Float,
+        currentOffset: Float = 0f
     ): Int {
         if (visibleHeight <= 0f || paragraphBottom <= paragraphTop) {
-            return 0
+            return currentOffset.roundToInt()
         }
         val paragraphHeight = paragraphBottom - paragraphTop
-        val targetTop = if (paragraphHeight <= visibleHeight * 0.8f) {
-            visibleTop + (visibleHeight - paragraphHeight) / 2f
-        } else {
-            visibleTop
+        val safeTop = visibleTop + visibleHeight * 0.1f
+        val safeBottom = visibleTop + visibleHeight * 0.9f
+        if (paragraphHeight > safeBottom - safeTop) {
+            return (visibleTop - paragraphTop).roundToInt()
         }
-        return (targetTop - paragraphTop).roundToInt()
+        val currentTop = paragraphTop + currentOffset
+        val currentBottom = paragraphBottom + currentOffset
+        return when {
+            currentTop >= safeTop && currentBottom <= safeBottom -> currentOffset.roundToInt()
+            currentTop < safeTop -> (safeTop - paragraphTop).roundToInt()
+            else -> (safeBottom - paragraphBottom).roundToInt()
+        }
     }
 }

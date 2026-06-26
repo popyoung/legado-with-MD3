@@ -121,6 +121,10 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
         var relativeOffset = relativeOffset(0)
         textPage.draw(this, canvas, relativeOffset)
         if (!drawContinuousPages()) return
+        if (readAloudFollowActive && !requireCallBack.isScroll) {
+            drawReadAloudFollowPages(canvas, relativeOffset)
+            return
+        }
         //滚动翻页
         if (!pageFactory.hasNext()) return
         val textPage1 = relativePage(1)
@@ -130,6 +134,19 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
         relativeOffset += textPage1.height
         if (relativeOffset < ChapterProvider.visibleHeight) {
             val textPage2 = relativePage(2)
+            textPage2.draw(this, canvas, relativeOffset)
+        }
+    }
+
+    private fun drawReadAloudFollowPages(canvas: Canvas, currentOffset: Float) {
+        val textChapter = textPage.getTextChapter()
+        var relativeOffset = currentOffset
+        val textPage1 = textChapter.getPage(textPage.index + 1) ?: return
+        relativeOffset += textPage.height
+        textPage1.draw(this, canvas, relativeOffset)
+        val textPage2 = textChapter.getPage(textPage.index + 2) ?: return
+        relativeOffset += textPage1.height
+        if (relativeOffset < ChapterProvider.visibleHeight) {
             textPage2.draw(this, canvas, relativeOffset)
         }
     }
@@ -229,7 +246,8 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
             paragraphTop = paragraphTop,
             paragraphBottom = paragraphBottom,
             visibleTop = ChapterProvider.paddingTop.toFloat(),
-            visibleHeight = ChapterProvider.visibleHeight.toFloat()
+            visibleHeight = ChapterProvider.visibleHeight.toFloat(),
+            currentOffset = pageOffset.toFloat()
         )
         readAloudFollowActive = true
         postInvalidate()
