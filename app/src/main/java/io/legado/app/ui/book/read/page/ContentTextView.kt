@@ -119,14 +119,22 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
         if (!callBack.isScroll) return
         //滚动翻页
         if (!pageFactory.hasNext()) return
-        val textPage1 = relativePage(1)
+        val textPage1 = relativeDrawPage(1)
         relativeOffset += textPage.height
         textPage1.draw(this, canvas, relativeOffset)
         if (!pageFactory.hasNextPlus()) return
         relativeOffset += textPage1.height
         if (relativeOffset < ChapterProvider.visibleHeight) {
-            val textPage2 = relativePage(2)
+            val textPage2 = relativeDrawPage(2)
             textPage2.draw(this, canvas, relativeOffset)
+        }
+    }
+
+    private fun relativeDrawPage(relativePos: Int): TextPage {
+        val textChapter = textPage.getTextChapter()
+        return when (relativePos) {
+            1 -> textChapter.getPage(textPage.index + 1) ?: pageFactory.nextPage
+            else -> textChapter.getPage(textPage.index + 2) ?: pageFactory.nextPlusPage
         }
     }
 

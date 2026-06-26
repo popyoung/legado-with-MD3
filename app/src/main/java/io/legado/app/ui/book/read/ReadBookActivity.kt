@@ -93,9 +93,12 @@ import io.legado.app.ui.book.read.config.TipConfigDialog.Companion.TITLE_COLOR
 import io.legado.app.ui.book.read.config.ToolButtonConfigDialog
 import io.legado.app.ui.book.read.config.UnderlineConfigDialog.Companion.U_COLOR
 import io.legado.app.ui.book.read.page.ContentTextView
+import io.legado.app.ui.book.read.page.ReadAloudParagraphHighlighter
 import io.legado.app.ui.book.read.page.ReadView
 import io.legado.app.ui.book.read.page.entities.PageDirection
+import io.legado.app.ui.book.read.page.entities.TextChapter
 import io.legado.app.ui.book.read.page.entities.TextPage
+import io.legado.app.ui.book.read.page.entities.TextParagraph
 import io.legado.app.ui.book.read.page.provider.ChapterProvider
 import io.legado.app.ui.book.read.page.provider.LayoutProgressListener
 import io.legado.app.ui.book.read.page.provider.TextChapterLayout
@@ -273,6 +276,7 @@ class ReadBookActivity : BaseReadBookActivity(),
     private val prevPageDebounce by lazy { Debounce { keyPage(PageDirection.PREV) } }
     private var bookChanged = false
     private var pageChanged = false
+    private var readAloudHighlightedPageIndices = emptySet<Int>()
     private val handler by lazy { buildMainHandler() }
     private val screenOffRunnable by lazy { Runnable { keepScreenOn(false) } }
     private val executor = ReadBook.executor
@@ -1906,11 +1910,8 @@ class ReadBookActivity : BaseReadBookActivity(),
         observeEvent<Int>(EventBus.ALOUD_STATE) {
             if (it == Status.STOP || it == Status.PAUSE) {
                 ReadBook.curTextChapter?.let { textChapter ->
-                    val page = textChapter.getPageByReadPos(ReadBook.durChapterPos)
-                    if (page != null) {
-                        page.removePageAloudSpan()
-                        readView.upContent(resetPageOffset = false)
-                    }
+                    clearReadAloudParagraphSpan(textChapter)
+                    readView.upContent(resetPageOffset = false)
                 }
             }
         }
@@ -1918,11 +1919,7 @@ class ReadBookActivity : BaseReadBookActivity(),
             lifecycleScope.launch(IO) {
                 if (BaseReadAloudService.isPlay()) {
                     ReadBook.curTextChapter?.let { textChapter ->
-                        val pageIndex = ReadBook.durPageIndex
-                        val aloudSpanStart = chapterStart - textChapter.getReadLength(pageIndex)
-                        textChapter.getPage(pageIndex)
-                            ?.upPageAloudSpan(aloudSpanStart)
-                        upContent()
+                        updateReadAloudParagraphSpan(chapterStart, textChapter)
                     }
                 }
             }
@@ -1952,6 +1949,39 @@ class ReadBookActivity : BaseReadBookActivity(),
                 viewModel.refreshContentDur(it)
             }
         }
+    }
+
+    private fun updateReadAloudParagraphSpan(
+        chapterStart: Int,
+        textChapter: TextChapter
+    ) {
+        val paragraph = findReadAloudParagraph(textChapter, chapterStart) ?: return
+        upContent(resetPageOffset = false) {
+            readAloudHighlightedPageIndices = ReadAloudParagraphHighlighter.update(
+                paragraph = paragraph,
+                highlightedPageIndices = readAloudHighlightedPageIndices
+            ) { index ->
+                textChapter.getPage(index)
+            }
+            binding.readView.curPage.invalidateContentView()
+        }
+    }
+
+    private fun findReadAloudParagraph(
+        textChapter: TextChapter,
+        chapterStart: Int
+    ): TextParagraph? {
+        val readPosition = chapterStart.coerceAtLeast(0)
+        return textChapter.paragraphs.firstOrNull { readPosition in it.chapterIndices }
+            ?: textChapter.paragraphs.firstOrNull { readPosition <= it.chapterPosition }
+            ?: textChapter.paragraphs.lastOrNull()
+    }
+
+    private fun clearReadAloudParagraphSpan(textChapter: TextChapter) {
+        ReadAloudParagraphHighlighter.clear(readAloudHighlightedPageIndices) { index ->
+            textChapter.getPage(index)
+        }
+        readAloudHighlightedPageIndices = emptySet()
     }
 
     private fun upScreenTimeOut() {

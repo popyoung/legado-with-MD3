@@ -1,0 +1,108 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - "personal/**"
+      - "custom/**"
+  pull_request:
+    branches:
+      - "personal/**"
+      - "custom/**"
+  workflow_dispatch:
+    inputs:
+      build_variant:
+        description: "手动运行任务"
+        required: true
+        default: "arm64-v8a-noR8"
+        type: choice
+        options:
+          - arm64-v8a-noR8
+          - check
+
+jobs:
+  compile:
+    name: Compile Kotlin
+    runs-on: ubuntu-latest
+    if: github.event_name != 'workflow_dispatch' || inputs.build_variant == 'check'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        run: sdkmanager "platforms;android-37.0" "build-tools;37.0.0"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Make Gradle wrapper executable
+        run: chmod +x ./gradlew
+
+      - name: Remove Aliyun mirrors
+        run: sed -i '/maven.aliyun.com/d' settings.gradle
+
+      - name: Compile app debug Kotlin
+        run: ./gradlew --no-configuration-cache :app:compileAppDebugKotlin
+
+      - name: Test read aloud paragraph highlighting
+        run: ./gradlew --no-configuration-cache :app:testAppDebugUnitTest --tests "io.legado.app.ui.book.read.page.ReadAloudParagraphHighlighterTest"
+
+  build-apk:
+    name: Build ${{ inputs.build_variant }} APK
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && inputs.build_variant != 'check'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        run: sdkmanager "platforms;android-37.0" "build-tools;37.0.0"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Make Gradle wrapper executable
+        run: chmod +x ./gradlew
+
+      - name: Remove Aliyun mirrors
+        run: sed -i '/maven.aliyun.com/d' settings.gradle
+
+      - name: Build selected APK
+        run: |
+          case "${{ inputs.build_variant }}" in
+            arm64-v8a-noR8)
+              ./gradlew --no-configuration-cache -Plegado.splitAbis=arm64-v8a :app:assembleAppNoR8
+              ;;
+            *)
+              echo "Unknown build_variant: ${{ inputs.build_variant }}"
+              exit 1
+              ;;
+          esac
+
+      - name: Upload APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: legado-${{ inputs.build_variant }}-unsigned-apk
+          path: app/build/outputs/apk/**/noR8/*arm64-v8a*.apk
+          if-no-files-found: error
+          retention-days: 14

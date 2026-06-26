@@ -44,7 +44,7 @@ data class TextPage(
 
     companion object {
         val readProgressFormatter = DecimalFormat("0.0%")
-        val emptyTextPage = TextPage()
+        val emptyTextPage = TextPage(text = "", title = "")
     }
 
     val lines: List<TextLine> get() = textLines
@@ -53,9 +53,10 @@ data class TextPage(
     val chapterPosition: Int get() = textLines.first().chapterPosition
     val searchResult = hashSetOf<TextBaseColumn>()
     var isMsgPage: Boolean = false
-    var canvasRecorder = CanvasRecorderFactory.create(true)
+    private val canvasRecorderLazy = lazy { CanvasRecorderFactory.create(true) }
+    private val canvasRecorder by canvasRecorderLazy
     var doublePage = false
-    var paddingTop = ChapterProvider.paddingTop
+    var paddingTop = 0
     var isCompleted = false
     var hasReadAloudSpan = false
 
@@ -346,7 +347,9 @@ data class TextPage(
     }
 
     fun invalidate() {
-        canvasRecorder.invalidate()
+        if (canvasRecorderLazy.isInitialized()) {
+            canvasRecorder.invalidate()
+        }
     }
 
     fun invalidateAll() {
@@ -357,7 +360,9 @@ data class TextPage(
     }
 
     fun recycleRecorders() {
-        canvasRecorder.recycle()
+        if (canvasRecorderLazy.isInitialized()) {
+            canvasRecorder.recycle()
+        }
         for (i in lines.indices) {
             lines[i].recycleRecorder()
         }

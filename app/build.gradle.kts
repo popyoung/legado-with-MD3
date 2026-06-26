@@ -27,6 +27,13 @@ val versionMinor = versionProps["VERSION_MINOR"]?.toString()?.toInt() ?: 0
 val versionPatch = versionProps["VERSION_PATCH"]?.toString()?.toInt() ?: 0
 val appName = "legado"
 val projectVersionName = "$versionMajor.$versionMinor.$versionPatch"
+val splitAbisProperty = providers.gradleProperty("legado.splitAbis").orNull
+val splitAbis = splitAbisProperty
+    ?.split(",")
+    ?.map { it.trim() }
+    ?.filter { it.isNotEmpty() }
+    ?.takeIf { it.isNotEmpty() }
+    ?: listOf("armeabi-v7a", "arm64-v8a")
 
 android {
     compileSdk = 37
@@ -120,8 +127,8 @@ android {
         abi {
             isEnable = true
             reset()
-            include("armeabi-v7a", "arm64-v8a")
-            isUniversalApk = true
+            include(*splitAbis.toTypedArray())
+            isUniversalApk = splitAbisProperty == null
         }
     }
 
@@ -173,6 +180,7 @@ dependencies {
     "baselineProfile"(project(":baselineprofile"))
     coreLibraryDesugaring(libs.desugar)
     testImplementation(libs.junit)
+    testImplementation(libs.robolectric)
     androidTestImplementation(libs.bundles.androidTest)
     implementation(libs.kotlin.stdlib)
     implementation(libs.kotlinx.collections.immutable)

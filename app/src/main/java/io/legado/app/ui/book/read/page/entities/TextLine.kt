@@ -54,7 +54,8 @@ data class TextLine(
     val lineEnd: Float get() = textColumns.lastOrNull()?.end ?: 0f
     val chapterIndices: IntRange get() = chapterPosition..chapterPosition + charSize
     val height: Float inline get() = lineBottom - lineTop
-    val canvasRecorder = CanvasRecorderFactory.create()
+    private val canvasRecorderLazy = lazy { CanvasRecorderFactory.create() }
+    private val canvasRecorder by canvasRecorderLazy
     var searchResultColumnCount = 0
     var isReadAloud: Boolean = false
         set(value) {
@@ -264,11 +265,15 @@ data class TextLine(
     }
 
     fun invalidateSelf() {
-        canvasRecorder.invalidate()
+        if (canvasRecorderLazy.isInitialized()) {
+            canvasRecorder.invalidate()
+        }
     }
 
     fun recycleRecorder() {
-        canvasRecorder.recycle()
+        if (canvasRecorderLazy.isInitialized()) {
+            canvasRecorder.recycle()
+        }
     }
 
     @SuppressLint("NewApi")
