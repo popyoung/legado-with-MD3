@@ -63,6 +63,12 @@ internal object ReadAloudVisualPositioner {
         return visualPositionEnabled && readAloudRunning && !readAloudPositionVisible
     }
 
+    fun shouldUpdateHighlightWhenFollowPaused(
+        readAloudParagraphVisible: Boolean
+    ): Boolean {
+        return readAloudParagraphVisible
+    }
+
     @Suppress("UNUSED_PARAMETER")
     fun shouldRestoreStoredPositionOnResume(
         readAloudPaused: Boolean,

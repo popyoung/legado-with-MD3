@@ -2079,11 +2079,15 @@ class ReadBookActivity : BaseReadBookActivity(),
         val paragraph = findReadAloudParagraph(textChapter, chapterStart) ?: return
         val pageIndex = paragraph.firstLine.textPage.index
         if (readAloudVisualFollowPaused) {
-            if (ReadBook.durPageIndex == pageIndex) {
-                upContent(resetPageOffset = false) {
-                    updateReadAloudParagraphSpan(textChapter, paragraph)
-                    binding.readView.curPage.invalidateContentView()
-                }
+            if (ReadAloudVisualPositioner.shouldUpdateHighlightWhenFollowPaused(
+                    readAloudParagraphVisible = readAloudParagraphVisibleOnScreen(
+                        textChapter,
+                        paragraph
+                    )
+                )
+            ) {
+                updateReadAloudParagraphSpan(textChapter, paragraph)
+                binding.readView.curPage.invalidateContentView()
             }
             return
         }
@@ -2104,6 +2108,16 @@ class ReadBookActivity : BaseReadBookActivity(),
                     }
                 }
             }
+        }
+    }
+
+    private fun readAloudParagraphVisibleOnScreen(
+        textChapter: TextChapter,
+        paragraph: TextParagraph
+    ): Boolean {
+        val chapterIndex = textChapter.chapter.index
+        return paragraph.textLines.any { line ->
+            binding.readView.containsVisibleChapterPosition(chapterIndex, line.chapterPosition)
         }
     }
 

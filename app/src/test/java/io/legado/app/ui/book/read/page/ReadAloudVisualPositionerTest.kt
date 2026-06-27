@@ -133,6 +133,24 @@ class ReadAloudVisualPositionerTest {
     }
 
     @Test
+    fun pausedVisualFollowStillUpdatesHighlightWhenParagraphVisible() {
+        val shouldUpdate = ReadAloudVisualPositioner.shouldUpdateHighlightWhenFollowPaused(
+            readAloudParagraphVisible = true
+        )
+
+        assertTrue(shouldUpdate)
+    }
+
+    @Test
+    fun pausedVisualFollowDoesNotUpdateHighlightWhenParagraphHidden() {
+        val shouldUpdate = ReadAloudVisualPositioner.shouldUpdateHighlightWhenFollowPaused(
+            readAloudParagraphVisible = false
+        )
+
+        assertFalse(shouldUpdate)
+    }
+
+    @Test
     fun pausedResumeUsesStoredReadAloudPositionEvenAfterVisualPageChanged() {
         val shouldRestore = ReadAloudVisualPositioner.shouldRestoreStoredPositionOnResume(
             readAloudPaused = true,
