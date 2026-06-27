@@ -1,0 +1,484 @@
+From 1a197a01e94fab4fb891a35629598984bd08d6ba Mon Sep 17 00:00:00 2001
+From: popyoung <popyoung@163.com>
+Date: Sat, 27 Jun 2026 16:48:51 +0800
+Subject: [PATCH] Refine read aloud visual navigation
+
+---
+ .../java/io/legado/app/constant/PreferKey.kt  |  1 +
+ .../io/legado/app/help/config/AppConfig.kt    |  3 +
+ .../app/service/BaseReadAloudService.kt       | 17 ++++
+ .../app/ui/book/read/ReadBookActivity.kt      | 99 ++++++++++++++++++-
+ .../ui/book/read/config/ReadAloudDialog.kt    |  8 +-
+ .../app/ui/book/read/page/ContentTextView.kt  | 55 +++++++++++
+ .../legado/app/ui/book/read/page/PageView.kt  |  8 ++
+ .../legado/app/ui/book/read/page/ReadView.kt  | 14 ++-
+ app/src/main/res/values-zh-rCN/strings.xml    |  2 +
+ app/src/main/res/values-zh-rHK/strings.xml    |  2 +
+ app/src/main/res/values-zh-rTW/strings.xml    |  2 +
+ app/src/main/res/values/strings.xml           |  2 +
+ app/src/main/res/xml/pref_config_aloud.xml    |  7 ++
+ 13 files changed, 211 insertions(+), 9 deletions(-)
+
+diff --git a/app/src/main/java/io/legado/app/constant/PreferKey.kt b/app/src/main/java/io/legado/app/constant/PreferKey.kt
+index 050a0fb05..f70e1e602 100644
+--- a/app/src/main/java/io/legado/app/constant/PreferKey.kt
++++ b/app/src/main/java/io/legado/app/constant/PreferKey.kt
+@@ -39,6 +39,7 @@ object PreferKey {
+     const val hideNavigationBar = "hideNavigationBar"
+     const val precisionSearch = "precisionSearch"
+     const val readAloudByPage = "readAloudByPage"
++    const val readAloudVisualPosition = "readAloudVisualPosition"
+     const val ttsEngine = "appTtsEngine"
+     const val ttsFollowSys = "ttsFollowSys"
+     const val ttsSpeechRate = "ttsSpeechRate"
+diff --git a/app/src/main/java/io/legado/app/help/config/AppConfig.kt b/app/src/main/java/io/legado/app/help/config/AppConfig.kt
+index 8476d4395..7a7cd1cc7 100644
+--- a/app/src/main/java/io/legado/app/help/config/AppConfig.kt
++++ b/app/src/main/java/io/legado/app/help/config/AppConfig.kt
+@@ -350,6 +350,9 @@ object AppConfig : SharedPreferences.OnSharedPreferenceChangeListener {
+     val noAnimScrollPage: Boolean
+         get() = appCtx.getPrefBoolean(PreferKey.noAnimScrollPage, false)
+ 
++    val readAloudVisualPosition: Boolean
++        get() = appCtx.getPrefBoolean(PreferKey.readAloudVisualPosition, false)
++
+     const val defaultSpeechRate = 5
+ 
+     var ttsSpeechRate: Int
+diff --git a/app/src/main/java/io/legado/app/service/BaseReadAloudService.kt b/app/src/main/java/io/legado/app/service/BaseReadAloudService.kt
+index a0b49bdfe..860265a23 100644
+--- a/app/src/main/java/io/legado/app/service/BaseReadAloudService.kt
++++ b/app/src/main/java/io/legado/app/service/BaseReadAloudService.kt
+@@ -84,6 +84,14 @@ abstract class BaseReadAloudService : BaseService(),
+         var timeMinute: Int = 0
+             private set
+ 
++        @JvmStatic
++        var readAloudChapterIndex: Int = -1
++            private set
++
++        @JvmStatic
++        var readAloudChapterStart: Int = 0
++            private set
++
+         fun isPlay(): Boolean {
+             return isRun && !pause
+         }
+@@ -194,6 +202,8 @@ abstract class BaseReadAloudService : BaseService(),
+         }
+         isRun = false
+         pause = true
++        readAloudChapterIndex = -1
++        readAloudChapterStart = 0
+         abandonFocus()
+         unregisterReceiver(broadcastReceiver)
+         postEvent(EventBus.ALOUD_STATE, Status.STOP)
+@@ -265,6 +275,7 @@ abstract class BaseReadAloudService : BaseService(),
+                             textChapter.paragraphs[nowSpeak].chapterPosition
+                 }
+             }
++            updateReadAloudPosition(readAloudNumber + 1)
+             paragraphStartPos = pos
+             launch(Main) {
+                 upMediaMetadata()
+@@ -326,9 +337,15 @@ abstract class BaseReadAloudService : BaseService(),
+     abstract fun upSpeechRate(reset: Boolean = false)
+ 
+     fun upTtsProgress(progress: Int) {
++        updateReadAloudPosition(progress)
+         postEvent(EventBus.TTS_PROGRESS, progress)
+     }
+ 
++    private fun updateReadAloudPosition(progress: Int) {
++        readAloudChapterIndex = textChapter?.chapter?.index ?: -1
++        readAloudChapterStart = progress.coerceAtLeast(0)
++    }
++
+     private fun prevP() {
+         postEvent(EventBus.READ_ALOUD_MANUAL_STEP, true)
+         if (nowSpeak > 0) {
+diff --git a/app/src/main/java/io/legado/app/ui/book/read/ReadBookActivity.kt b/app/src/main/java/io/legado/app/ui/book/read/ReadBookActivity.kt
+index 47022db48..cedda3f1e 100644
+--- a/app/src/main/java/io/legado/app/ui/book/read/ReadBookActivity.kt
++++ b/app/src/main/java/io/legado/app/ui/book/read/ReadBookActivity.kt
+@@ -278,6 +278,7 @@ class ReadBookActivity : BaseReadBookActivity(),
+     private var bookChanged = false
+     private var pageChanged = false
+     private var readAloudVisualFollowPaused = false
++    private var restoringReadAloudVisualPosition = false
+     private var readAloudHighlightedPageIndices = emptySet<Int>()
+     private val handler by lazy { buildMainHandler() }
+     private val screenOffRunnable by lazy { Runnable { keepScreenOn(false) } }
+@@ -318,8 +319,10 @@ class ReadBookActivity : BaseReadBookActivity(),
+                 return@addCallback
+             }
+             if (BaseReadAloudService.isPlay()) {
+-                ReadAloud.pause(this@ReadBookActivity)
+-                toastOnUi(R.string.read_aloud_pause)
++                if (readAloudPositionVisibleOnScreen() || !restoreReadAloudVisualPosition()) {
++                    ReadAloud.pause(this@ReadBookActivity)
++                    toastOnUi(R.string.read_aloud_pause)
++                }
+                 return@addCallback
+             }
+             if (isAutoPage) {
+@@ -1140,6 +1143,7 @@ class ReadBookActivity : BaseReadBookActivity(),
+             intent.removeExtra("readAloud")
+             ReadBook.readAloud()
+         }
++        restoringReadAloudVisualPosition = false
+         loadStates = true
+     }
+ 
+@@ -1197,7 +1201,7 @@ class ReadBookActivity : BaseReadBookActivity(),
+      */
+     override fun pageChanged(fromReadAloud: Boolean) {
+         pageChanged = true
+-        if (BaseReadAloudService.isPlay() && !fromReadAloud) {
++        if (BaseReadAloudService.isPlay() && !fromReadAloud && !restoringReadAloudVisualPosition) {
+             readAloudVisualFollowPaused = true
+             binding.readView.curPage.clearReadAloudVisualFollow()
+         }
+@@ -1532,6 +1536,90 @@ class ReadBookActivity : BaseReadBookActivity(),
+         }
+     }
+ 
++    override fun readAloudPreviousParagraph() {
++        readAloudParagraphFromUi(next = false)
++    }
++
++    override fun readAloudNextParagraph() {
++        readAloudParagraphFromUi(next = true)
++    }
++
++    private fun readAloudParagraphFromUi(next: Boolean) {
++        if (AppConfig.readAloudVisualPosition && BaseReadAloudService.isRun) {
++            if (readAloudFromVisualCenter()) return
++        }
++        if (next) {
++            ReadAloud.nextParagraph(this)
++        } else {
++            ReadAloud.prevParagraph(this)
++        }
++    }
++
++    private fun readAloudFromVisualCenter(): Boolean {
++        val pos = binding.readView.getReadAloudCenterPos() ?: return false
++        val (index, line) = pos
++        readAloudVisualFollowPaused = false
++        if (ReadBook.durChapterIndex != index) {
++            ReadBook.openChapter(index, line.chapterPosition, false) {
++                readAloudFromLineParagraphStart(line)
++            }
++        } else {
++            readAloudFromLineParagraphStart(line)
++        }
++        return true
++    }
++
++    private fun readAloudPositionVisibleOnScreen(): Boolean {
++        val chapterIndex = BaseReadAloudService.readAloudChapterIndex
++        if (chapterIndex < 0) return true
++        return binding.readView.containsVisibleChapterPosition(
++            chapterIndex = chapterIndex,
++            chapterPosition = BaseReadAloudService.readAloudChapterStart
++        )
++    }
++
++    private fun restoreReadAloudVisualPosition(): Boolean {
++        val chapterIndex = BaseReadAloudService.readAloudChapterIndex
++        if (chapterIndex !in 0 until ReadBook.simulatedChapterSize) return false
++        val chapterStart = BaseReadAloudService.readAloudChapterStart.coerceAtLeast(0)
++        readAloudVisualFollowPaused = false
++        if (ReadBook.durChapterIndex == chapterIndex) {
++            val textChapter = ReadBook.curTextChapter ?: return false
++            if (!textChapter.isCompleted) return false
++            restoreReadAloudVisualInChapter(textChapter, chapterStart)
++            return true
++        }
++        restoringReadAloudVisualPosition = true
++        ReadBook.openChapter(chapterIndex, chapterStart, true) {
++            ReadBook.curTextChapter?.takeIf { it.isCompleted }?.let { textChapter ->
++                restoreReadAloudVisualInChapter(textChapter, chapterStart)
++            }
++            restoringReadAloudVisualPosition = false
++        }
++        handler.postDelayed({ restoringReadAloudVisualPosition = false }, 30000)
++        return true
++    }
++
++    private fun restoreReadAloudVisualInChapter(
++        textChapter: TextChapter,
++        chapterStart: Int
++    ) {
++        val paragraph = findReadAloudParagraph(textChapter, chapterStart)
++        val pageIndex = paragraph?.firstLine?.textPage?.index
++            ?: textChapter.getPageIndexByCharIndex(chapterStart)
++        if (pageIndex < 0) return
++        ReadBook.withReadAloudPageChange {
++            ReadBook.skipToPage(pageIndex) {
++                paragraph?.let {
++                    updateReadAloudParagraphSpan(textChapter, it)
++                    binding.readView.post {
++                        binding.readView.followReadAloudParagraph(it)
++                    }
++                }
++            }
++        }
++    }
++
+     private fun readAloudFromLineParagraphStart(line: TextLine) {
+         val textChapter = ReadBook.curTextChapter ?: run {
+             ReadBook.readAloud(startPos = line.pagePosition)
+@@ -1952,7 +2040,10 @@ class ReadBookActivity : BaseReadBookActivity(),
+         observeEventSticky<Int>(EventBus.TTS_PROGRESS) { chapterStart ->
+             lifecycleScope.launch {
+                 if (BaseReadAloudService.isPlay()) {
+-                    ReadBook.curTextChapter?.let { textChapter ->
++                    val readAloudChapterIndex = BaseReadAloudService.readAloudChapterIndex
++                    ReadBook.curTextChapter?.takeIf {
++                        readAloudChapterIndex < 0 || it.chapter.index == readAloudChapterIndex
++                    }?.let { textChapter ->
+                         updateReadAloudVisual(chapterStart, textChapter)
+                     }
+                 }
+diff --git a/app/src/main/java/io/legado/app/ui/book/read/config/ReadAloudDialog.kt b/app/src/main/java/io/legado/app/ui/book/read/config/ReadAloudDialog.kt
+index 631765bb2..b6f55687f 100644
+--- a/app/src/main/java/io/legado/app/ui/book/read/config/ReadAloudDialog.kt
++++ b/app/src/main/java/io/legado/app/ui/book/read/config/ReadAloudDialog.kt
+@@ -108,8 +108,8 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
+             dismissAllowingStateLoss()
+         }
+         ivPlayPause.setOnClickListener { callBack?.onClickReadAloud() }
+-        ivPlayPrev.setOnClickListener { ReadAloud.prevParagraph(requireContext()) }
+-        ivPlayNext.setOnClickListener { ReadAloud.nextParagraph(requireContext()) }
++        ivPlayPrev.setOnClickListener { callBack?.readAloudPreviousParagraph() }
++        ivPlayNext.setOnClickListener { callBack?.readAloudNextParagraph() }
+         ivCatalog.setOnClickListener { callBack?.openChapterList() }
+         ivToBackstage.setOnClickListener { callBack?.finish() }
+         cbTtsFollowSys.setOnCheckedChangeListener { _, isChecked ->
+@@ -256,6 +256,8 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
+         fun showMenuBar()
+         fun openChapterList()
+         fun onClickReadAloud()
++        fun readAloudPreviousParagraph()
++        fun readAloudNextParagraph()
+         fun finish()
+     }
+-}
+\ No newline at end of file
++}
+diff --git a/app/src/main/java/io/legado/app/ui/book/read/page/ContentTextView.kt b/app/src/main/java/io/legado/app/ui/book/read/page/ContentTextView.kt
+index 7039ab286..f53a6e449 100644
+--- a/app/src/main/java/io/legado/app/ui/book/read/page/ContentTextView.kt
++++ b/app/src/main/java/io/legado/app/ui/book/read/page/ContentTextView.kt
+@@ -656,6 +656,61 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
+         return null
+     }
+ 
++    fun getReadAloudCenterPos(): Pair<Int, TextLine>? {
++        val centerY = ChapterProvider.paddingTop + ChapterProvider.visibleHeight / 2f
++        var nearestLine: Pair<Int, TextLine>? = null
++        var nearestDistance = Float.MAX_VALUE
++        var relativeOffset: Float
++        for (relativePos in 0..2) {
++            relativeOffset = contentOffset(relativePos)
++            if (relativePos > 0) {
++                if (!callBack.isScroll) break
++                if (relativeOffset >= ChapterProvider.visibleHeight) break
++            }
++            val textPage = relativePage(relativePos)
++            for (textLine in textPage.lines) {
++                if (!textLine.isVisible(relativeOffset)) continue
++                val top = textLine.lineTop + relativeOffset
++                val bottom = textLine.lineBottom + relativeOffset
++                val visibleLine = textLine.copy().apply {
++                    lineTop = top
++                    lineBottom = bottom
++                }
++                if (centerY > top && centerY < bottom) {
++                    return textPage.chapterIndex to visibleLine
++                }
++                val distance = when {
++                    centerY < top -> top - centerY
++                    else -> centerY - bottom
++                }
++                if (distance < nearestDistance) {
++                    nearestDistance = distance
++                    nearestLine = textPage.chapterIndex to visibleLine
++                }
++            }
++        }
++        return nearestLine ?: getReadAloudPos()
++    }
++
++    fun containsVisibleChapterPosition(chapterIndex: Int, chapterPosition: Int): Boolean {
++        var relativeOffset: Float
++        for (relativePos in 0..2) {
++            relativeOffset = contentOffset(relativePos)
++            if (relativePos > 0) {
++                if (!callBack.isScroll) break
++                if (relativeOffset >= ChapterProvider.visibleHeight) break
++            }
++            val textPage = relativePage(relativePos)
++            if (textPage.chapterIndex != chapterIndex) continue
++            for (textLine in textPage.lines) {
++                if (textLine.isVisible(relativeOffset) && chapterPosition in textLine.chapterIndices) {
++                    return true
++                }
++            }
++        }
++        return false
++    }
++
+     /**
+      * 选择开始文字
+      */
+diff --git a/app/src/main/java/io/legado/app/ui/book/read/page/PageView.kt b/app/src/main/java/io/legado/app/ui/book/read/page/PageView.kt
+index ae5a117cf..2b1989508 100644
+--- a/app/src/main/java/io/legado/app/ui/book/read/page/PageView.kt
++++ b/app/src/main/java/io/legado/app/ui/book/read/page/PageView.kt
+@@ -539,6 +539,14 @@ class PageView(context: Context) : FrameLayout(context) {
+         return binding.contentTextView.getReadAloudPos()
+     }
+ 
++    fun getReadAloudCenterPos(): Pair<Int, TextLine>? {
++        return binding.contentTextView.getReadAloudCenterPos()
++    }
++
++    fun containsVisibleChapterPosition(chapterIndex: Int, chapterPosition: Int): Boolean {
++        return binding.contentTextView.containsVisibleChapterPosition(chapterIndex, chapterPosition)
++    }
++
+     fun markAsMainView() {
+         isMainView = true
+         binding.contentTextView.isMainView = true
+diff --git a/app/src/main/java/io/legado/app/ui/book/read/page/ReadView.kt b/app/src/main/java/io/legado/app/ui/book/read/page/ReadView.kt
+index 8322c33d4..5a46222b4 100644
+--- a/app/src/main/java/io/legado/app/ui/book/read/page/ReadView.kt
++++ b/app/src/main/java/io/legado/app/ui/book/read/page/ReadView.kt
+@@ -444,8 +444,8 @@ class ReadView(context: Context, attrs: AttributeSet) :
+             2 -> pageDelegate?.prevPageByAnim(defaultAnimationSpeed)
+             3 -> ReadBook.moveToNextChapter(true)
+             4 -> ReadBook.moveToPrevChapter(upContent = true, toLast = false)
+-            5 -> ReadAloud.prevParagraph(context)
+-            6 -> ReadAloud.nextParagraph(context)
++            5 -> callBack.readAloudPreviousParagraph()
++            6 -> callBack.readAloudNextParagraph()
+             7 -> callBack.addBookmark()
+             8 -> activity?.showDialogFragment(ContentEditDialog())
+             9 -> callBack.changeReplaceRuleState()
+@@ -691,6 +691,14 @@ class ReadView(context: Context, attrs: AttributeSet) :
+         return curPage.getReadAloudPos()
+     }
+ 
++    fun getReadAloudCenterPos(): Pair<Int, TextLine>? {
++        return curPage.getReadAloudCenterPos()
++    }
++
++    fun containsVisibleChapterPosition(chapterIndex: Int, chapterPosition: Int): Boolean {
++        return curPage.containsVisibleChapterPosition(chapterIndex, chapterPosition)
++    }
++
+     fun followReadAloudParagraph(paragraph: TextParagraph): Boolean {
+         return curPage.followReadAloudParagraph(paragraph)
+     }
+@@ -770,5 +778,7 @@ class ReadView(context: Context, attrs: AttributeSet) :
+         fun openSearchActivity(searchWord: String?)
+         fun upSystemUiVisibility()
+         fun sureNewProgress(progress: BookProgress)
++        fun readAloudPreviousParagraph()
++        fun readAloudNextParagraph()
+     }
+ }
+diff --git a/app/src/main/res/values-zh-rCN/strings.xml b/app/src/main/res/values-zh-rCN/strings.xml
+index 2fea33bc7..b177a6fc1 100644
+--- a/app/src/main/res/values-zh-rCN/strings.xml
++++ b/app/src/main/res/values-zh-rCN/strings.xml
+@@ -937,6 +937,8 @@
+     <string name="pref_media_button_per_next">媒体按钮 • 上一首|下一首</string>
+     <string name="pref_media_button_per_next_summary">上一段|下一段/上一章|下一章</string>
+     <string name="read_aloud_by_page_summary">及时翻页，翻页时会停顿一下</string>
++    <string name="read_aloud_visual_position">朗读基于视觉定位</string>
++    <string name="read_aloud_visual_position_summary">开启后，阅读界面内的上一段/下一段会朗读屏幕中间附近的段落</string>
+     <string name="check_source_show_debug_message">校验显示详细信息</string>
+     <string name="check_source_show_debug_message_summary">书源校验时显示网络请求步骤和时间</string>
+     <string name="need_login">需要登录</string>
+diff --git a/app/src/main/res/values-zh-rHK/strings.xml b/app/src/main/res/values-zh-rHK/strings.xml
+index 853b67b87..c6c076fef 100644
+--- a/app/src/main/res/values-zh-rHK/strings.xml
++++ b/app/src/main/res/values-zh-rHK/strings.xml
+@@ -900,6 +900,8 @@
+     <string name="pref_media_button_per_next">媒體按鈕•上一首|下一首</string>
+     <string name="pref_media_button_per_next_summary">上一段|下一段/上一章|下一章</string>
+     <string name="read_aloud_by_page_summary">及時翻頁,翻頁時會停頓一下</string>
++    <string name="read_aloud_visual_position">朗讀基於視覺定位</string>
++    <string name="read_aloud_visual_position_summary">開啟後，閱讀界面內的上一段/下一段會朗讀屏幕中間附近的段落</string>
+     <string name="check_source_show_debug_message">校驗書源顯示詳細信息</string>
+     <string name="check_source_show_debug_message_summary">書源校驗時顯示網絡請求步驟和時間</string>
+     <string name="need_login">需登錄</string>
+diff --git a/app/src/main/res/values-zh-rTW/strings.xml b/app/src/main/res/values-zh-rTW/strings.xml
+index 0e080f5ac..e1e1b6b90 100644
+--- a/app/src/main/res/values-zh-rTW/strings.xml
++++ b/app/src/main/res/values-zh-rTW/strings.xml
+@@ -903,6 +903,8 @@
+     <string name="pref_media_button_per_next">媒體按鈕•上一首|下一首</string>
+     <string name="pref_media_button_per_next_summary">上一段|下一段/上一章|下一章</string>
+     <string name="read_aloud_by_page_summary">及時翻頁，翻頁時會停頓一下</string>
++    <string name="read_aloud_visual_position">朗讀基於視覺定位</string>
++    <string name="read_aloud_visual_position_summary">開啟後，閱讀界面內的上一段/下一段會朗讀螢幕中間附近的段落</string>
+     <string name="check_source_show_debug_message">校驗書源顯示詳細資訊</string>
+     <string name="check_source_show_debug_message_summary">書源校驗時顯示網路請求步驟和時間</string>
+     <string name="need_login">需登入</string>
+diff --git a/app/src/main/res/values/strings.xml b/app/src/main/res/values/strings.xml
+index 1977edb8c..493536755 100644
+--- a/app/src/main/res/values/strings.xml
++++ b/app/src/main/res/values/strings.xml
+@@ -968,6 +968,8 @@
+     <string name="pref_media_button_per_next">Media Buttons • Previous | Next</string>
+     <string name="pref_media_button_per_next_summary">Previous Paragraph|Next Paragraph/Previous Chapter|Next Chapter</string>
+     <string name="read_aloud_by_page_summary">Turning pages in time, with a pause when the page is turned</string>
++    <string name="read_aloud_visual_position">Read aloud from visual position</string>
++    <string name="read_aloud_visual_position_summary">When enabled, previous/next paragraph controls in the reader use the paragraph near the screen center</string>
+     <string name="check_source_show_debug_message">Check book source shows debug message</string>
+     <string name="check_source_show_debug_message_summary">Show network status and timestamp during source checking</string>
+     <string name="need_login">Require Login</string>
+diff --git a/app/src/main/res/xml/pref_config_aloud.xml b/app/src/main/res/xml/pref_config_aloud.xml
+index a2b1d076a..e44275733 100644
+--- a/app/src/main/res/xml/pref_config_aloud.xml
++++ b/app/src/main/res/xml/pref_config_aloud.xml
+@@ -41,6 +41,13 @@
+             android:key="readAloudByPage"
+             app:iconSpaceReserved="false" />
+ 
++        <io.legado.app.lib.prefs.SwitchPreference
++            android:defaultValue="false"
++            android:title="@string/read_aloud_visual_position"
++            android:summary="@string/read_aloud_visual_position_summary"
++            android:key="readAloudVisualPosition"
++            app:iconSpaceReserved="false" />
++
+         <io.legado.app.lib.prefs.SwitchPreference
+             android:defaultValue="false"
+             android:key="systemMediaControlCompatibilityChange"
+
+base-commit: b7e07a6478c2beeadd8027f0a2f7376ad302b644
+prerequisite-patch-id: 7d6f6c66c7fe93d4b51f117d3487d267bed442e2
+prerequisite-patch-id: 9dc923c43e542f8552b6cb4864fcf6cfdbf80826
+prerequisite-patch-id: 23e9af72b007ded395b0a87369d93357ebaa01b3
+prerequisite-patch-id: b55698415a0e2ebf5f57632a6c6bcddda1b24e1e
+prerequisite-patch-id: aeca489a63d4dacae7c9df67e6d6d8c9efa4a7f8
+prerequisite-patch-id: 02a89a3153bae60bfbe99d8854ffe0da40625aa8
+prerequisite-patch-id: 042d2344fe137be09581ecba10644adb0c1a8184
+prerequisite-patch-id: cae1a8ee149519b39b8f3e012c83d492c2abfb45
+prerequisite-patch-id: 8adbecd77a088a6b6840b0ebeb886468734db5f7
+prerequisite-patch-id: 796b223779c249a7663f969803344b9632405327
+prerequisite-patch-id: 559ad7ff11ec0a211870f03d30dadda5b4080f6d
+prerequisite-patch-id: 0b29fa1e17d992cc3fb6166bacb98ccb94863b9e
+prerequisite-patch-id: 18e3fa502ed65a11ba379073327a6517e9b52ddf
+prerequisite-patch-id: 25783bd3cd463384d52f2afc5172937a2dd89373
+prerequisite-patch-id: 928a7386d0a22ca57f2b30dfd4c7cf8e0b233437
+prerequisite-patch-id: bccebc3a8cb0542743e33881d82cae4661434763
+-- 
+2.33.0.windows.2
+
