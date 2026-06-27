@@ -76,6 +76,28 @@ class ReadAloudVisualPositionerTest {
     }
 
     @Test
+    fun activeFollowOffsetIsAddedToScrollOffsetForDrawingOnly() {
+        val offset = ReadAloudVisualPositioner.contentOffset(
+            pageOffset = -300f,
+            readAloudOffset = 150f,
+            readAloudActive = true
+        )
+
+        assertEquals(-150f, offset)
+    }
+
+    @Test
+    fun inactiveFollowOffsetKeepsScrollOffset() {
+        val offset = ReadAloudVisualPositioner.contentOffset(
+            pageOffset = -300f,
+            readAloudOffset = 150f,
+            readAloudActive = false
+        )
+
+        assertEquals(-300f, offset)
+    }
+
+    @Test
     fun longParagraphStartsAtVisibleTop() {
         val offset = ReadAloudVisualPositioner.calculateOffset(
             paragraphTop = 850f,

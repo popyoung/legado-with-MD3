@@ -1491,11 +1491,10 @@ class ReadBookActivity : BaseReadBookActivity(),
                         val (index, line) = pos
                         if (ReadBook.durChapterIndex != index) {
                             ReadBook.openChapter(index, line.chapterPosition, false) {
-                                ReadBook.readAloud(startPos = line.pagePosition)
+                                readAloudFromLineParagraphStart(line)
                             }
                         } else {
-                            ReadBook.durChapterPos = line.chapterPosition
-                            ReadBook.readAloud(startPos = line.pagePosition)
+                            readAloudFromLineParagraphStart(line)
                         }
                     } else {
                         ReadBook.readAloud()
@@ -1515,11 +1514,10 @@ class ReadBookActivity : BaseReadBookActivity(),
                         val (index, line) = pos
                         if (ReadBook.durChapterIndex != index) {
                             ReadBook.openChapter(index, line.chapterPosition, false) {
-                                ReadBook.readAloud(startPos = line.pagePosition)
+                                readAloudFromLineParagraphStart(line)
                             }
                         } else {
-                            ReadBook.durChapterPos = line.chapterPosition
-                            ReadBook.readAloud(startPos = line.pagePosition)
+                            readAloudFromLineParagraphStart(line)
                         }
                     } else {
                         ReadBook.readAloud()
@@ -1533,8 +1531,33 @@ class ReadBookActivity : BaseReadBookActivity(),
         }
     }
 
+    private fun readAloudFromLineParagraphStart(line: TextLine) {
+        val textChapter = ReadBook.curTextChapter ?: run {
+            ReadBook.readAloud(startPos = line.pagePosition)
+            return
+        }
+        val paragraph = textChapter.paragraphs.firstOrNull {
+            line.chapterPosition in it.chapterIndices
+        }
+        if (paragraph == null) {
+            ReadBook.durChapterPos = line.chapterPosition
+            ReadBook.readAloud(startPos = line.pagePosition)
+            return
+        }
+        val pageIndex = paragraph.firstLine.textPage.index
+        val startPos = paragraph.chapterPosition - textChapter.getReadLength(pageIndex)
+        ReadBook.durChapterPos = paragraph.chapterPosition
+        ReadBook.readAloud(pageIndex = pageIndex, startPos = startPos.coerceAtLeast(0))
+    }
+
     override fun showHelp() {
         showHelp("readMenuHelp")
+    }
+
+    override fun onReadAloudVisualFollowInterrupted() {
+        if (BaseReadAloudService.isPlay()) {
+            readAloudVisualFollowPaused = true
+        }
     }
 
     /**

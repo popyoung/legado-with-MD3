@@ -40,4 +40,12 @@ internal object ReadAloudVisualPositioner {
         }
         return currentOffset - previousPageHeight
     }
+
+    fun contentOffset(
+        pageOffset: Float,
+        readAloudOffset: Float,
+        readAloudActive: Boolean
+    ): Float {
+        return pageOffset + if (readAloudActive) readAloudOffset else 0f
+    }
 }

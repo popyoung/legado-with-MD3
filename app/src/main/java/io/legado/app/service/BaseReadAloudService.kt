@@ -346,7 +346,7 @@ abstract class BaseReadAloudService : BaseService(),
                 if (readAloudNumber < it.getReadLength(pageIndex)) {
                     pageIndex--
                     ReadBook.withReadAloudPageChange {
-                        ReadBook.moveToPrevPage()
+                        ReadBook.skipToPage(pageIndex)
                     }
                 }
             }
@@ -378,7 +378,7 @@ abstract class BaseReadAloudService : BaseService(),
                 ) {
                     pageIndex++
                     ReadBook.withReadAloudPageChange {
-                        ReadBook.moveToNextPage()
+                        ReadBook.skipToPage(pageIndex)
                     }
                 }
             }

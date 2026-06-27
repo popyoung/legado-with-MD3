@@ -63,6 +63,7 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
     private val pageFactory get() = callBack.pageFactory
     private val pageDelegate get() = callBack.pageDelegate
     private var pageOffset = 0
+    private var readAloudPageOffset = 0
     private var autoPager: AutoPager? = null
     private var isScroll = false
     private var readAloudFollowActive = false
@@ -116,7 +117,10 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
      * 绘制页面
      */
     private fun drawPage(canvas: Canvas) {
-        var relativeOffset = relativeOffset(0)
+        var relativeOffset = contentOffset(0)
+        if (readAloudFollowActive) {
+            drawReadAloudPreviousPage(canvas, relativeOffset)
+        }
         textPage.draw(this, canvas, relativeOffset)
         if (!drawContinuousPages()) return
         if (readAloudFollowActive && !callBack.isScroll) {
@@ -145,7 +149,6 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
     }
 
     private fun drawReadAloudFollowPages(canvas: Canvas, currentOffset: Float) {
-        drawReadAloudPreviousPage(canvas, currentOffset)
         val textChapter = textPage.getTextChapter()
         var relativeOffset = currentOffset
         val textPage1 = textChapter.getPage(textPage.index + 1) ?: return
@@ -182,6 +185,7 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
      * pageOffset + textPage.height 为 textPage 下方的高度
      */
     fun scroll(mOffset: Int) {
+        resetReadAloudFollowByUserScroll()
         pageOffset += mOffset
         if (longScreenshot) {
             scrollY += -mOffset
@@ -233,7 +237,7 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
                 invalidate = true
             }
             if (hasNextPlus() && nextPlusPage.render(view) && callBack.isScroll
-                && relativeOffset(2) < ChapterProvider.visibleHeight
+                && contentOffset(2) < ChapterProvider.visibleHeight
             ) {
                 invalidate = true
             }
@@ -249,6 +253,7 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
      */
     fun resetPageOffset() {
         pageOffset = 0
+        readAloudPageOffset = 0
         readAloudFollowActive = false
     }
 
@@ -260,13 +265,14 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
         }
         val paragraphTop = lineTopInContinuousPage(firstLine, textPage.index)
         val paragraphBottom = lineBottomInContinuousPage(lastLine, textPage.index)
-        pageOffset = ReadAloudVisualPositioner.calculateOffset(
+        val effectiveOffset = ReadAloudVisualPositioner.calculateOffset(
             paragraphTop = paragraphTop,
             paragraphBottom = paragraphBottom,
             visibleTop = ChapterProvider.paddingTop.toFloat(),
             visibleHeight = ChapterProvider.visibleHeight.toFloat(),
-            currentOffset = pageOffset.toFloat()
+            currentOffset = contentOffset(0)
         )
+        readAloudPageOffset = effectiveOffset - pageOffset
         readAloudFollowActive = true
         postInvalidate()
         return true
@@ -291,6 +297,13 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
 
     private fun drawContinuousPages(): Boolean {
         return callBack.isScroll || readAloudFollowActive
+    }
+
+    private fun resetReadAloudFollowByUserScroll() {
+        if (!readAloudFollowActive) return
+        readAloudFollowActive = false
+        readAloudPageOffset = 0
+        callBack.onReadAloudVisualFollowInterrupted()
     }
 
     /**
@@ -483,7 +496,7 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
         if (!visibleRect.contains(x, y)) return
         var relativeOffset: Float
         for (relativePos in 0..2) {
-            relativeOffset = relativeOffset(relativePos)
+            relativeOffset = contentOffset(relativePos)
             if (relativePos > 0) {
                 //滚动翻页
                 if (!callBack.isScroll) return
@@ -526,7 +539,7 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
     ) {
         var relativeOffset: Float
         for (relativePos in 0..2) {
-            relativeOffset = relativeOffset(relativePos)
+            relativeOffset = contentOffset(relativePos)
             if (relativePos > 0) {
                 //滚动翻页
                 if (!callBack.isScroll) return
@@ -575,7 +588,7 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
         val visiblePage = TextPage()
         var relativeOffset: Float
         for (relativePos in 0..2) {
-            relativeOffset = relativeOffset(relativePos)
+            relativeOffset = contentOffset(relativePos)
             if (relativePos > 0) {
                 //滚动翻页
                 if (!callBack.isScroll) break
@@ -600,7 +613,7 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
     fun getReadAloudPos(): Pair<Int, TextLine>? {
         var relativeOffset: Float
         for (relativePos in 0..2) {
-            relativeOffset = relativeOffset(relativePos)
+            relativeOffset = contentOffset(relativePos)
             if (relativePos > 0) {
                 //滚动翻页
                 if (!callBack.isScroll) break
@@ -806,6 +819,14 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
         }
     }
 
+    private fun contentOffset(relativePos: Int): Float {
+        return ReadAloudVisualPositioner.contentOffset(
+            pageOffset = relativeOffset(relativePos),
+            readAloudOffset = readAloudPageOffset.toFloat(),
+            readAloudActive = readAloudFollowActive
+        )
+    }
+
     fun relativePage(relativePos: Int): TextPage {
         return when (relativePos) {
             0 -> textPage
@@ -864,5 +885,6 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
         fun onLongScreenshotTouchEvent(event: MotionEvent): Boolean
         fun oldClickImg(src: String): Boolean
         fun clickImg(click: String, src: String)
+        fun onReadAloudVisualFollowInterrupted()
     }
 }
