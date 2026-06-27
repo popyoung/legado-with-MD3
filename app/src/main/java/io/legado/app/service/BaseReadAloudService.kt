@@ -84,6 +84,14 @@ abstract class BaseReadAloudService : BaseService(),
         var timeMinute: Int = 0
             private set
 
+        @JvmStatic
+        var readAloudChapterIndex: Int = -1
+            private set
+
+        @JvmStatic
+        var readAloudChapterStart: Int = 0
+            private set
+
         fun isPlay(): Boolean {
             return isRun && !pause
         }
@@ -194,6 +202,8 @@ abstract class BaseReadAloudService : BaseService(),
         }
         isRun = false
         pause = true
+        readAloudChapterIndex = -1
+        readAloudChapterStart = 0
         abandonFocus()
         unregisterReceiver(broadcastReceiver)
         postEvent(EventBus.ALOUD_STATE, Status.STOP)
@@ -265,6 +275,7 @@ abstract class BaseReadAloudService : BaseService(),
                             textChapter.paragraphs[nowSpeak].chapterPosition
                 }
             }
+            updateReadAloudPosition(readAloudNumber + 1)
             paragraphStartPos = pos
             launch(Main) {
                 upMediaMetadata()
@@ -326,7 +337,13 @@ abstract class BaseReadAloudService : BaseService(),
     abstract fun upSpeechRate(reset: Boolean = false)
 
     fun upTtsProgress(progress: Int) {
+        updateReadAloudPosition(progress)
         postEvent(EventBus.TTS_PROGRESS, progress)
+    }
+
+    private fun updateReadAloudPosition(progress: Int) {
+        readAloudChapterIndex = textChapter?.chapter?.index ?: -1
+        readAloudChapterStart = progress.coerceAtLeast(0)
     }
 
     private fun prevP() {

@@ -444,8 +444,8 @@ class ReadView(context: Context, attrs: AttributeSet) :
             2 -> pageDelegate?.prevPageByAnim(defaultAnimationSpeed)
             3 -> ReadBook.moveToNextChapter(true)
             4 -> ReadBook.moveToPrevChapter(upContent = true, toLast = false)
-            5 -> ReadAloud.prevParagraph(context)
-            6 -> ReadAloud.nextParagraph(context)
+            5 -> callBack.readAloudPreviousParagraph()
+            6 -> callBack.readAloudNextParagraph()
             7 -> callBack.addBookmark()
             8 -> activity?.showDialogFragment(ContentEditDialog())
             9 -> callBack.changeReplaceRuleState()
@@ -691,6 +691,14 @@ class ReadView(context: Context, attrs: AttributeSet) :
         return curPage.getReadAloudPos()
     }
 
+    fun getReadAloudCenterPos(): Pair<Int, TextLine>? {
+        return curPage.getReadAloudCenterPos()
+    }
+
+    fun containsVisibleChapterPosition(chapterIndex: Int, chapterPosition: Int): Boolean {
+        return curPage.containsVisibleChapterPosition(chapterIndex, chapterPosition)
+    }
+
     fun followReadAloudParagraph(paragraph: TextParagraph): Boolean {
         return curPage.followReadAloudParagraph(paragraph)
     }
@@ -770,5 +778,7 @@ class ReadView(context: Context, attrs: AttributeSet) :
         fun openSearchActivity(searchWord: String?)
         fun upSystemUiVisibility()
         fun sureNewProgress(progress: BookProgress)
+        fun readAloudPreviousParagraph()
+        fun readAloudNextParagraph()
     }
 }

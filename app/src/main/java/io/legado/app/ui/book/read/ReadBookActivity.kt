@@ -278,6 +278,7 @@ class ReadBookActivity : BaseReadBookActivity(),
     private var bookChanged = false
     private var pageChanged = false
     private var readAloudVisualFollowPaused = false
+    private var restoringReadAloudVisualPosition = false
     private var readAloudHighlightedPageIndices = emptySet<Int>()
     private val handler by lazy { buildMainHandler() }
     private val screenOffRunnable by lazy { Runnable { keepScreenOn(false) } }
@@ -318,8 +319,10 @@ class ReadBookActivity : BaseReadBookActivity(),
                 return@addCallback
             }
             if (BaseReadAloudService.isPlay()) {
-                ReadAloud.pause(this@ReadBookActivity)
-                toastOnUi(R.string.read_aloud_pause)
+                if (readAloudPositionVisibleOnScreen() || !restoreReadAloudVisualPosition()) {
+                    ReadAloud.pause(this@ReadBookActivity)
+                    toastOnUi(R.string.read_aloud_pause)
+                }
                 return@addCallback
             }
             if (isAutoPage) {
@@ -1140,6 +1143,7 @@ class ReadBookActivity : BaseReadBookActivity(),
             intent.removeExtra("readAloud")
             ReadBook.readAloud()
         }
+        restoringReadAloudVisualPosition = false
         loadStates = true
     }
 
@@ -1197,7 +1201,7 @@ class ReadBookActivity : BaseReadBookActivity(),
      */
     override fun pageChanged(fromReadAloud: Boolean) {
         pageChanged = true
-        if (BaseReadAloudService.isPlay() && !fromReadAloud) {
+        if (BaseReadAloudService.isPlay() && !fromReadAloud && !restoringReadAloudVisualPosition) {
             readAloudVisualFollowPaused = true
             binding.readView.curPage.clearReadAloudVisualFollow()
         }
@@ -1529,6 +1533,90 @@ class ReadBookActivity : BaseReadBookActivity(),
             }
 
             else -> ReadAloud.pause(this)
+        }
+    }
+
+    override fun readAloudPreviousParagraph() {
+        readAloudParagraphFromUi(next = false)
+    }
+
+    override fun readAloudNextParagraph() {
+        readAloudParagraphFromUi(next = true)
+    }
+
+    private fun readAloudParagraphFromUi(next: Boolean) {
+        if (AppConfig.readAloudVisualPosition && BaseReadAloudService.isRun) {
+            if (readAloudFromVisualCenter()) return
+        }
+        if (next) {
+            ReadAloud.nextParagraph(this)
+        } else {
+            ReadAloud.prevParagraph(this)
+        }
+    }
+
+    private fun readAloudFromVisualCenter(): Boolean {
+        val pos = binding.readView.getReadAloudCenterPos() ?: return false
+        val (index, line) = pos
+        readAloudVisualFollowPaused = false
+        if (ReadBook.durChapterIndex != index) {
+            ReadBook.openChapter(index, line.chapterPosition, false) {
+                readAloudFromLineParagraphStart(line)
+            }
+        } else {
+            readAloudFromLineParagraphStart(line)
+        }
+        return true
+    }
+
+    private fun readAloudPositionVisibleOnScreen(): Boolean {
+        val chapterIndex = BaseReadAloudService.readAloudChapterIndex
+        if (chapterIndex < 0) return true
+        return binding.readView.containsVisibleChapterPosition(
+            chapterIndex = chapterIndex,
+            chapterPosition = BaseReadAloudService.readAloudChapterStart
+        )
+    }
+
+    private fun restoreReadAloudVisualPosition(): Boolean {
+        val chapterIndex = BaseReadAloudService.readAloudChapterIndex
+        if (chapterIndex !in 0 until ReadBook.simulatedChapterSize) return false
+        val chapterStart = BaseReadAloudService.readAloudChapterStart.coerceAtLeast(0)
+        readAloudVisualFollowPaused = false
+        if (ReadBook.durChapterIndex == chapterIndex) {
+            val textChapter = ReadBook.curTextChapter ?: return false
+            if (!textChapter.isCompleted) return false
+            restoreReadAloudVisualInChapter(textChapter, chapterStart)
+            return true
+        }
+        restoringReadAloudVisualPosition = true
+        ReadBook.openChapter(chapterIndex, chapterStart, true) {
+            ReadBook.curTextChapter?.takeIf { it.isCompleted }?.let { textChapter ->
+                restoreReadAloudVisualInChapter(textChapter, chapterStart)
+            }
+            restoringReadAloudVisualPosition = false
+        }
+        handler.postDelayed({ restoringReadAloudVisualPosition = false }, 30000)
+        return true
+    }
+
+    private fun restoreReadAloudVisualInChapter(
+        textChapter: TextChapter,
+        chapterStart: Int
+    ) {
+        val paragraph = findReadAloudParagraph(textChapter, chapterStart)
+        val pageIndex = paragraph?.firstLine?.textPage?.index
+            ?: textChapter.getPageIndexByCharIndex(chapterStart)
+        if (pageIndex < 0) return
+        ReadBook.withReadAloudPageChange {
+            ReadBook.skipToPage(pageIndex) {
+                paragraph?.let {
+                    updateReadAloudParagraphSpan(textChapter, it)
+                    binding.readView.post {
+                        binding.readView.followReadAloudParagraph(it)
+                    }
+                }
+            }
         }
     }
 
@@ -1952,7 +2040,10 @@ class ReadBookActivity : BaseReadBookActivity(),
         observeEventSticky<Int>(EventBus.TTS_PROGRESS) { chapterStart ->
             lifecycleScope.launch {
                 if (BaseReadAloudService.isPlay()) {
-                    ReadBook.curTextChapter?.let { textChapter ->
+                    val readAloudChapterIndex = BaseReadAloudService.readAloudChapterIndex
+                    ReadBook.curTextChapter?.takeIf {
+                        readAloudChapterIndex < 0 || it.chapter.index == readAloudChapterIndex
+                    }?.let { textChapter ->
                         updateReadAloudVisual(chapterStart, textChapter)
                     }
                 }

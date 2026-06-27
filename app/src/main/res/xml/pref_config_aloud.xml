@@ -43,6 +43,13 @@
 
         <io.legado.app.lib.prefs.SwitchPreference
             android:defaultValue="false"
+            android:title="@string/read_aloud_visual_position"
+            android:summary="@string/read_aloud_visual_position_summary"
+            android:key="readAloudVisualPosition"
+            app:iconSpaceReserved="false" />
+
+        <io.legado.app.lib.prefs.SwitchPreference
+            android:defaultValue="false"
             android:key="systemMediaControlCompatibilityChange"
             android:summary="@string/system_media_control_compatibility_change_summary"
             android:title="@string/system_media_control_compatibility_change"

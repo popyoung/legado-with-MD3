@@ -656,6 +656,61 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
         return null
     }
 
+    fun getReadAloudCenterPos(): Pair<Int, TextLine>? {
+        val centerY = ChapterProvider.paddingTop + ChapterProvider.visibleHeight / 2f
+        var nearestLine: Pair<Int, TextLine>? = null
+        var nearestDistance = Float.MAX_VALUE
+        var relativeOffset: Float
+        for (relativePos in 0..2) {
+            relativeOffset = contentOffset(relativePos)
+            if (relativePos > 0) {
+                if (!callBack.isScroll) break
+                if (relativeOffset >= ChapterProvider.visibleHeight) break
+            }
+            val textPage = relativePage(relativePos)
+            for (textLine in textPage.lines) {
+                if (!textLine.isVisible(relativeOffset)) continue
+                val top = textLine.lineTop + relativeOffset
+                val bottom = textLine.lineBottom + relativeOffset
+                val visibleLine = textLine.copy().apply {
+                    lineTop = top
+                    lineBottom = bottom
+                }
+                if (centerY > top && centerY < bottom) {
+                    return textPage.chapterIndex to visibleLine
+                }
+                val distance = when {
+                    centerY < top -> top - centerY
+                    else -> centerY - bottom
+                }
+                if (distance < nearestDistance) {
+                    nearestDistance = distance
+                    nearestLine = textPage.chapterIndex to visibleLine
+                }
+            }
+        }
+        return nearestLine ?: getReadAloudPos()
+    }
+
+    fun containsVisibleChapterPosition(chapterIndex: Int, chapterPosition: Int): Boolean {
+        var relativeOffset: Float
+        for (relativePos in 0..2) {
+            relativeOffset = contentOffset(relativePos)
+            if (relativePos > 0) {
+                if (!callBack.isScroll) break
+                if (relativeOffset >= ChapterProvider.visibleHeight) break
+            }
+            val textPage = relativePage(relativePos)
+            if (textPage.chapterIndex != chapterIndex) continue
+            for (textLine in textPage.lines) {
+                if (textLine.isVisible(relativeOffset) && chapterPosition in textLine.chapterIndices) {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
     /**
      * 选择开始文字
      */

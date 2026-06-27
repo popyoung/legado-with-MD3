@@ -900,6 +900,8 @@
     <string name="pref_media_button_per_next">媒體按鈕•上一首|下一首</string>
     <string name="pref_media_button_per_next_summary">上一段|下一段/上一章|下一章</string>
     <string name="read_aloud_by_page_summary">及時翻頁,翻頁時會停頓一下</string>
+    <string name="read_aloud_visual_position">朗讀基於視覺定位</string>
+    <string name="read_aloud_visual_position_summary">開啟後，閱讀界面內的上一段/下一段會朗讀屏幕中間附近的段落</string>
     <string name="check_source_show_debug_message">校驗書源顯示詳細信息</string>
     <string name="check_source_show_debug_message_summary">書源校驗時顯示網絡請求步驟和時間</string>
     <string name="need_login">需登錄</string>

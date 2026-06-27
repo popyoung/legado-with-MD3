@@ -539,6 +539,14 @@ class PageView(context: Context) : FrameLayout(context) {
         return binding.contentTextView.getReadAloudPos()
     }
 
+    fun getReadAloudCenterPos(): Pair<Int, TextLine>? {
+        return binding.contentTextView.getReadAloudCenterPos()
+    }
+
+    fun containsVisibleChapterPosition(chapterIndex: Int, chapterPosition: Int): Boolean {
+        return binding.contentTextView.containsVisibleChapterPosition(chapterIndex, chapterPosition)
+    }
+
     fun markAsMainView() {
         isMainView = true
         binding.contentTextView.isMainView = true

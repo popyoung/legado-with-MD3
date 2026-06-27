@@ -108,8 +108,8 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
             dismissAllowingStateLoss()
         }
         ivPlayPause.setOnClickListener { callBack?.onClickReadAloud() }
-        ivPlayPrev.setOnClickListener { ReadAloud.prevParagraph(requireContext()) }
-        ivPlayNext.setOnClickListener { ReadAloud.nextParagraph(requireContext()) }
+        ivPlayPrev.setOnClickListener { callBack?.readAloudPreviousParagraph() }
+        ivPlayNext.setOnClickListener { callBack?.readAloudNextParagraph() }
         ivCatalog.setOnClickListener { callBack?.openChapterList() }
         ivToBackstage.setOnClickListener { callBack?.finish() }
         cbTtsFollowSys.setOnCheckedChangeListener { _, isChecked ->
@@ -256,6 +256,8 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
         fun showMenuBar()
         fun openChapterList()
         fun onClickReadAloud()
+        fun readAloudPreviousParagraph()
+        fun readAloudNextParagraph()
         fun finish()
     }
 }
