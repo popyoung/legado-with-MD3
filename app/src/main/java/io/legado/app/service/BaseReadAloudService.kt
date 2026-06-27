@@ -420,6 +420,15 @@ abstract class BaseReadAloudService : BaseService(),
         upTtsProgress(readAloudNumber + 1)
     }
 
+    private fun restartReadAloudFromReadBook(toLastChapterEnd: Boolean = false) {
+        val pageIndex = if (toLastChapterEnd) {
+            ReadBook.curTextChapter?.lastIndex ?: ReadBook.durPageIndex
+        } else {
+            ReadBook.durPageIndex
+        }.coerceAtLeast(0)
+        newReadAloud(play = true, pageIndex = pageIndex, startPos = 0)
+    }
+
     private fun setTimer(minute: Int) {
         timeMinute = minute
         doDs()
@@ -753,7 +762,7 @@ abstract class BaseReadAloudService : BaseService(),
                 ReadBook.moveToNextChapterAwait(true, upContentInPlace = false)
             }
             if (moved) {
-                ReadBook.readAloud()
+                restartReadAloudFromReadBook()
             } else {
                 stopSelf()
             }
@@ -769,7 +778,7 @@ abstract class BaseReadAloudService : BaseService(),
                 ReadBook.moveToPrevChapterAwait(true, toLast = toLast, upContentInPlace = false)
             }
             if (moved) {
-                ReadBook.readAloud()
+                restartReadAloudFromReadBook(toLastChapterEnd = toLast)
             }
         }
     }
