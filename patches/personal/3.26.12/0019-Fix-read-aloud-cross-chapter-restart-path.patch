@@ -1,0 +1,74 @@
+From e9419b1853b1488a9973aee1935520479436bdc6 Mon Sep 17 00:00:00 2001
+From: popyoung <popyoung@163.com>
+Date: Sun, 28 Jun 2026 00:26:03 +0800
+Subject: [PATCH] Fix read aloud cross-chapter restart path
+
+---
+ .../io/legado/app/service/BaseReadAloudService.kt   | 13 +++++++++++--
+ 1 file changed, 11 insertions(+), 2 deletions(-)
+
+diff --git a/app/src/main/java/io/legado/app/service/BaseReadAloudService.kt b/app/src/main/java/io/legado/app/service/BaseReadAloudService.kt
+index 7ac048ebd..9b080419e 100644
+--- a/app/src/main/java/io/legado/app/service/BaseReadAloudService.kt
++++ b/app/src/main/java/io/legado/app/service/BaseReadAloudService.kt
+@@ -420,6 +420,15 @@ abstract class BaseReadAloudService : BaseService(),
+         upTtsProgress(readAloudNumber + 1)
+     }
+ 
++    private fun restartReadAloudFromReadBook(toLastChapterEnd: Boolean = false) {
++        val pageIndex = if (toLastChapterEnd) {
++            ReadBook.curTextChapter?.lastIndex ?: ReadBook.durPageIndex
++        } else {
++            ReadBook.durPageIndex
++        }.coerceAtLeast(0)
++        newReadAloud(play = true, pageIndex = pageIndex, startPos = 0)
++    }
++
+     private fun setTimer(minute: Int) {
+         timeMinute = minute
+         doDs()
+@@ -753,7 +762,7 @@ abstract class BaseReadAloudService : BaseService(),
+                 ReadBook.moveToNextChapterAwait(true, upContentInPlace = false)
+             }
+             if (moved) {
+-                ReadBook.readAloud()
++                restartReadAloudFromReadBook()
+             } else {
+                 stopSelf()
+             }
+@@ -769,7 +778,7 @@ abstract class BaseReadAloudService : BaseService(),
+                 ReadBook.moveToPrevChapterAwait(true, toLast = toLast, upContentInPlace = false)
+             }
+             if (moved) {
+-                ReadBook.readAloud()
++                restartReadAloudFromReadBook(toLastChapterEnd = toLast)
+             }
+         }
+     }
+
+base-commit: b7e07a6478c2beeadd8027f0a2f7376ad302b644
+prerequisite-patch-id: 7d6f6c66c7fe93d4b51f117d3487d267bed442e2
+prerequisite-patch-id: 9dc923c43e542f8552b6cb4864fcf6cfdbf80826
+prerequisite-patch-id: 23e9af72b007ded395b0a87369d93357ebaa01b3
+prerequisite-patch-id: b55698415a0e2ebf5f57632a6c6bcddda1b24e1e
+prerequisite-patch-id: aeca489a63d4dacae7c9df67e6d6d8c9efa4a7f8
+prerequisite-patch-id: 02a89a3153bae60bfbe99d8854ffe0da40625aa8
+prerequisite-patch-id: 042d2344fe137be09581ecba10644adb0c1a8184
+prerequisite-patch-id: cae1a8ee149519b39b8f3e012c83d492c2abfb45
+prerequisite-patch-id: 8adbecd77a088a6b6840b0ebeb886468734db5f7
+prerequisite-patch-id: 796b223779c249a7663f969803344b9632405327
+prerequisite-patch-id: 559ad7ff11ec0a211870f03d30dadda5b4080f6d
+prerequisite-patch-id: 0b29fa1e17d992cc3fb6166bacb98ccb94863b9e
+prerequisite-patch-id: 18e3fa502ed65a11ba379073327a6517e9b52ddf
+prerequisite-patch-id: 25783bd3cd463384d52f2afc5172937a2dd89373
+prerequisite-patch-id: 928a7386d0a22ca57f2b30dfd4c7cf8e0b233437
+prerequisite-patch-id: bccebc3a8cb0542743e33881d82cae4661434763
+prerequisite-patch-id: 396283cafb8a7a46794b4fd67c5539b041eb80af
+prerequisite-patch-id: 969e02a2b2f8bd717a897d9449a29331dd05eb0b
+prerequisite-patch-id: d87f38b47b0b62a450ab99b717817fce1ee2f6bf
+prerequisite-patch-id: 79c1c6ce1aa5c244ecef4468b34efcc4b235844e
+prerequisite-patch-id: bbc1a80e06914a47e47b3e2e17c1825898fd71cc
+prerequisite-patch-id: 31731ed885c9647dc56fbfd54e231cc72a70b0c7
+-- 
+2.33.0.windows.2
+
