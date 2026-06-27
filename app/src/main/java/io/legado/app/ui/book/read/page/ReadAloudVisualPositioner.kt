@@ -6,6 +6,12 @@ internal object ReadAloudVisualPositioner {
 
     private const val SAFE_EDGE_RATIO = 0.15f
 
+    data class FollowState(
+        val pageOffset: Int,
+        val readAloudOffset: Int,
+        val active: Boolean
+    )
+
     fun calculateOffset(
         paragraphTop: Float,
         paragraphBottom: Float,
@@ -47,5 +53,13 @@ internal object ReadAloudVisualPositioner {
         readAloudActive: Boolean
     ): Float {
         return pageOffset + if (readAloudActive) readAloudOffset else 0f
+    }
+
+    fun clearFollowState(state: FollowState): FollowState {
+        return state.copy(readAloudOffset = 0, active = false)
+    }
+
+    fun resetPageState(state: FollowState): FollowState {
+        return clearFollowState(state).copy(pageOffset = 0)
     }
 }

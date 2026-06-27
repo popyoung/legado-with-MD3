@@ -252,15 +252,31 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
      * 重置滚动位置
      */
     fun resetPageOffset() {
-        pageOffset = 0
-        clearReadAloudVisualFollow()
+        applyReadAloudFollowState(
+            ReadAloudVisualPositioner.resetPageState(readAloudFollowState())
+        )
     }
 
     fun clearReadAloudVisualFollow() {
-        if (!readAloudFollowActive && readAloudPageOffset == 0) return
-        readAloudFollowActive = false
-        readAloudPageOffset = 0
+        val state = readAloudFollowState()
+        val cleared = ReadAloudVisualPositioner.clearFollowState(state)
+        if (state == cleared) return
+        applyReadAloudFollowState(cleared)
         postInvalidate()
+    }
+
+    private fun readAloudFollowState(): ReadAloudVisualPositioner.FollowState {
+        return ReadAloudVisualPositioner.FollowState(
+            pageOffset = pageOffset,
+            readAloudOffset = readAloudPageOffset,
+            active = readAloudFollowActive
+        )
+    }
+
+    private fun applyReadAloudFollowState(state: ReadAloudVisualPositioner.FollowState) {
+        pageOffset = state.pageOffset
+        readAloudPageOffset = state.readAloudOffset
+        readAloudFollowActive = state.active
     }
 
     fun followReadAloudParagraph(paragraph: TextParagraph): Boolean {

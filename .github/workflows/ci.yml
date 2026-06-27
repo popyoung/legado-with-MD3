@@ -51,7 +51,7 @@ jobs:
         run: ./gradlew --no-configuration-cache :app:compileAppDebugKotlin
 
       - name: Test read aloud visual behavior
-        run: ./gradlew --no-configuration-cache :app:testAppDebugUnitTest --tests "io.legado.app.ui.book.read.page.ReadAloudParagraphHighlighterTest" --tests "io.legado.app.ui.book.read.page.ReadAloudVisualPositionerTest" --tests "io.legado.app.ui.book.read.page.ContentTextViewReadAloudStateTest"
+        run: ./gradlew --no-configuration-cache :app:testAppDebugUnitTest --tests "io.legado.app.ui.book.read.page.ReadAloudParagraphHighlighterTest" --tests "io.legado.app.ui.book.read.page.ReadAloudVisualPositionerTest"
 
       - name: Build selected APK
         if: github.event_name == 'workflow_dispatch' && inputs.build_variant != 'check'

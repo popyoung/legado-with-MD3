@@ -98,6 +98,36 @@ class ReadAloudVisualPositionerTest {
     }
 
     @Test
+    fun clearFollowStateKeepsScrollOffset() {
+        val state = ReadAloudVisualPositioner.clearFollowState(
+            ReadAloudVisualPositioner.FollowState(
+                pageOffset = -420,
+                readAloudOffset = 120,
+                active = true
+            )
+        )
+
+        assertEquals(-420, state.pageOffset)
+        assertEquals(0, state.readAloudOffset)
+        assertEquals(false, state.active)
+    }
+
+    @Test
+    fun resetPageStateClearsScrollOffset() {
+        val state = ReadAloudVisualPositioner.resetPageState(
+            ReadAloudVisualPositioner.FollowState(
+                pageOffset = -420,
+                readAloudOffset = 120,
+                active = true
+            )
+        )
+
+        assertEquals(0, state.pageOffset)
+        assertEquals(0, state.readAloudOffset)
+        assertEquals(false, state.active)
+    }
+
+    @Test
     fun longParagraphStartsAtVisibleTop() {
         val offset = ReadAloudVisualPositioner.calculateOffset(
             paragraphTop = 850f,
