@@ -343,6 +343,7 @@ abstract class BaseReadAloudService : BaseService(),
                     val paragraphs = it.getParagraphs(true)
                     if (!paragraphs[nowSpeak].isParagraphEnd) readAloudNumber++
                 }
+                alignReadBookToReadAloudChapter()
                 if (readAloudNumber < it.getReadLength(pageIndex)) {
                     pageIndex--
                     ReadBook.withReadAloudPageChange {
@@ -356,6 +357,7 @@ abstract class BaseReadAloudService : BaseService(),
         } else {
             toLast = true
             ReadBook.withReadAloudPageChange {
+                alignReadBookToReadAloudChapter()
                 ReadBook.moveToPrevChapter(true)
             }
         }
@@ -373,6 +375,7 @@ abstract class BaseReadAloudService : BaseService(),
                     val paragraphs = it.getParagraphs(true)
                     if (!paragraphs[nowSpeak].isParagraphEnd) readAloudNumber--
                 }
+                alignReadBookToReadAloudChapter()
                 if (pageIndex + 1 < it.pageSize
                     && readAloudNumber >= it.getReadLength(pageIndex + 1)
                 ) {
@@ -388,6 +391,11 @@ abstract class BaseReadAloudService : BaseService(),
         } else {
             nextChapter()
         }
+    }
+
+    private fun alignReadBookToReadAloudChapter() {
+        val textChapter = textChapter ?: return
+        ReadBook.alignToReadAloudChapter(textChapter, readAloudNumber)
     }
 
     private fun setTimer(minute: Int) {
@@ -713,6 +721,7 @@ abstract class BaseReadAloudService : BaseService(),
         toLast = false
         resumeReadAloudInternal()
         ReadBook.withReadAloudPageChange {
+            alignReadBookToReadAloudChapter()
             ReadBook.moveToPrevChapter(true, toLast = false)
         }
     }
@@ -722,6 +731,7 @@ abstract class BaseReadAloudService : BaseService(),
         AppLog.putDebug("${ReadBook.curTextChapter?.chapter?.title} 朗读结束跳转下一章并朗读")
         resumeReadAloudInternal()
         val moved = ReadBook.withReadAloudPageChange {
+            alignReadBookToReadAloudChapter()
             ReadBook.moveToNextChapter(true)
         }
         if (!moved) {

@@ -529,6 +529,21 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
         saveRead(true)
     }
 
+    fun alignToReadAloudChapter(textChapter: TextChapter, chapterPos: Int) {
+        val chapterIndex = textChapter.chapter.index
+        if (chapterIndex !in 0 until simulatedChapterSize) return
+        durChapterPos = chapterPos.coerceAtLeast(0)
+        if (durChapterIndex == chapterIndex && curTextChapter === textChapter) {
+            return
+        }
+        durChapterIndex = chapterIndex
+        msg = null
+        curTextChapter = textChapter
+        prevTextChapter = null
+        nextTextChapter = null
+        clearExpiredChapterLoadingJob()
+    }
+
     fun setPageIndex(index: Int) {
         recycleRecorders(durPageIndex, index)
         durChapterPos = curTextChapter?.getReadLength(index) ?: index
