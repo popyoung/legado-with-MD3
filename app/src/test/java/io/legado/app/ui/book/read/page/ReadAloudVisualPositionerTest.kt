@@ -1,7 +1,9 @@
 package io.legado.app.ui.book.read.page
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ReadAloudVisualPositionerTest {
@@ -95,6 +97,39 @@ class ReadAloudVisualPositionerTest {
         )
 
         assertEquals(-300f, offset)
+    }
+
+    @Test
+    fun visibleReadAloudPositionKeepsManualStepOnReadAloudPosition() {
+        val shouldUseVisualCenter = ReadAloudVisualPositioner.shouldStepFromVisualCenter(
+            visualPositionEnabled = true,
+            readAloudRunning = true,
+            readAloudPositionVisible = true
+        )
+
+        assertFalse(shouldUseVisualCenter)
+    }
+
+    @Test
+    fun hiddenReadAloudPositionAllowsManualStepFromVisualCenter() {
+        val shouldUseVisualCenter = ReadAloudVisualPositioner.shouldStepFromVisualCenter(
+            visualPositionEnabled = true,
+            readAloudRunning = true,
+            readAloudPositionVisible = false
+        )
+
+        assertTrue(shouldUseVisualCenter)
+    }
+
+    @Test
+    fun disabledVisualPositionKeepsManualStepOnReadAloudPosition() {
+        val shouldUseVisualCenter = ReadAloudVisualPositioner.shouldStepFromVisualCenter(
+            visualPositionEnabled = false,
+            readAloudRunning = true,
+            readAloudPositionVisible = false
+        )
+
+        assertFalse(shouldUseVisualCenter)
     }
 
     @Test

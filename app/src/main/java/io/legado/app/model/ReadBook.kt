@@ -536,12 +536,23 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
         if (durChapterIndex == chapterIndex && curTextChapter === textChapter) {
             return
         }
+        val nearbyChapters = listOfNotNull(prevTextChapter, curTextChapter, nextTextChapter)
         durChapterIndex = chapterIndex
         msg = null
         curTextChapter = textChapter
-        prevTextChapter = null
-        nextTextChapter = null
+        prevTextChapter = nearbyChapters.firstOrNull {
+            it !== textChapter && it.isCompleted && it.chapter.index == chapterIndex - 1
+        }
+        nextTextChapter = nearbyChapters.firstOrNull {
+            it !== textChapter && it.isCompleted && it.chapter.index == chapterIndex + 1
+        }
         clearExpiredChapterLoadingJob()
+        if (prevTextChapter == null) {
+            loadContent(chapterIndex - 1, upContent = false, resetPageOffset = false)
+        }
+        if (nextTextChapter == null) {
+            loadContent(chapterIndex + 1, upContent = false, resetPageOffset = false)
+        }
     }
 
     fun setPageIndex(index: Int) {

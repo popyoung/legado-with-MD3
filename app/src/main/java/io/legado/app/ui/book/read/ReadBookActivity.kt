@@ -94,6 +94,7 @@ import io.legado.app.ui.book.read.config.ToolButtonConfigDialog
 import io.legado.app.ui.book.read.config.UnderlineConfigDialog.Companion.U_COLOR
 import io.legado.app.ui.book.read.page.ContentTextView
 import io.legado.app.ui.book.read.page.ReadAloudParagraphHighlighter
+import io.legado.app.ui.book.read.page.ReadAloudVisualPositioner
 import io.legado.app.ui.book.read.page.ReadView
 import io.legado.app.ui.book.read.page.entities.PageDirection
 import io.legado.app.ui.book.read.page.entities.TextChapter
@@ -1545,7 +1546,12 @@ class ReadBookActivity : BaseReadBookActivity(),
     }
 
     private fun readAloudParagraphFromUi(next: Boolean) {
-        if (AppConfig.readAloudVisualPosition && BaseReadAloudService.isRun) {
+        if (ReadAloudVisualPositioner.shouldStepFromVisualCenter(
+                visualPositionEnabled = AppConfig.readAloudVisualPosition,
+                readAloudRunning = BaseReadAloudService.isRun,
+                readAloudPositionVisible = readAloudPositionVisibleOnScreen()
+            )
+        ) {
             if (readAloudFromVisualCenter()) return
         }
         if (next) {

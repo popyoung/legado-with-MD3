@@ -55,6 +55,14 @@ internal object ReadAloudVisualPositioner {
         return pageOffset + if (readAloudActive) readAloudOffset else 0f
     }
 
+    fun shouldStepFromVisualCenter(
+        visualPositionEnabled: Boolean,
+        readAloudRunning: Boolean,
+        readAloudPositionVisible: Boolean
+    ): Boolean {
+        return visualPositionEnabled && readAloudRunning && !readAloudPositionVisible
+    }
+
     fun clearFollowState(state: FollowState): FollowState {
         return state.copy(readAloudOffset = 0, active = false)
     }
