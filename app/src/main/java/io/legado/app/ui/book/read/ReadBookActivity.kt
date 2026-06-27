@@ -1199,7 +1199,7 @@ class ReadBookActivity : BaseReadBookActivity(),
         pageChanged = true
         if (BaseReadAloudService.isPlay() && !fromReadAloud) {
             readAloudVisualFollowPaused = true
-            binding.readView.curPage.resetPageOffset()
+            binding.readView.curPage.clearReadAloudVisualFollow()
         }
         binding.readView.onPageChange()
         handler.post {

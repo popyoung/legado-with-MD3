@@ -445,6 +445,10 @@ class PageView(context: Context) : FrameLayout(context) {
         binding.contentTextView.resetPageOffset()
     }
 
+    fun clearReadAloudVisualFollow() {
+        binding.contentTextView.clearReadAloudVisualFollow()
+    }
+
     fun followReadAloudParagraph(paragraph: TextParagraph): Boolean {
         return binding.contentTextView.followReadAloudParagraph(paragraph)
     }

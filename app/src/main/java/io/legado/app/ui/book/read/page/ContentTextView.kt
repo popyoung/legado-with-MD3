@@ -253,8 +253,14 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
      */
     fun resetPageOffset() {
         pageOffset = 0
-        readAloudPageOffset = 0
+        clearReadAloudVisualFollow()
+    }
+
+    fun clearReadAloudVisualFollow() {
+        if (!readAloudFollowActive && readAloudPageOffset == 0) return
         readAloudFollowActive = false
+        readAloudPageOffset = 0
+        postInvalidate()
     }
 
     fun followReadAloudParagraph(paragraph: TextParagraph): Boolean {
@@ -300,9 +306,8 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
     }
 
     private fun resetReadAloudFollowByUserScroll() {
-        if (!readAloudFollowActive) return
-        readAloudFollowActive = false
-        readAloudPageOffset = 0
+        if (!readAloudFollowActive && readAloudPageOffset == 0) return
+        clearReadAloudVisualFollow()
         callBack.onReadAloudVisualFollowInterrupted()
     }
 
