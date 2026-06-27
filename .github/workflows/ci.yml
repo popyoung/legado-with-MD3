@@ -87,6 +87,9 @@ jobs:
       - name: Remove Aliyun mirrors
         run: sed -i '/maven.aliyun.com/d' settings.gradle
 
+      - name: Test read aloud visual behavior
+        run: ./gradlew --no-configuration-cache :app:testAppDebugUnitTest --tests "io.legado.app.ui.book.read.page.ReadAloudParagraphHighlighterTest" --tests "io.legado.app.ui.book.read.page.ReadAloudVisualPositionerTest"
+
       - name: Build selected APK
         run: |
           case "${{ inputs.build_variant }}" in
