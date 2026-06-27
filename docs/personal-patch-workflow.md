@@ -35,6 +35,12 @@ Keep personal changes as small, topic-focused commits. Export them from the curr
 git format-patch --base=upstream/3.27 -o patches/personal/3.27 upstream/3.27..personal/3.27-tts
 ```
 
+If patch files are committed back to the personal branch, do not include the patch archive commit in the next export range. Use the last non-patch commit as the range end:
+
+```bash
+git format-patch --base=upstream/3.27 -o patches/personal/3.27 upstream/3.27..<last-non-patch-commit>
+```
+
 Recommended patch topics:
 
 - GitHub Actions build workflow
