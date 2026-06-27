@@ -44,6 +44,9 @@ class TextPageFactory(dataSource: DataSource) : PageFactory<TextPage>(dataSource
                 if ((currentChapter == null || isScroll) && nextChapter == null) {
                     return@with false
                 }
+                if (nextChapter != null && nextChapter?.isCompleted == false) {
+                    return@with false
+                }
                 ReadBook.moveToNextChapter(upContent, false)
             } else {
                 if (pageIndex < 0 || currentChapter?.isLastIndexCurrent(pageIndex) == true) {
