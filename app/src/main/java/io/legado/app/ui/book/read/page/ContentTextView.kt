@@ -145,6 +145,7 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
     }
 
     private fun drawReadAloudFollowPages(canvas: Canvas, currentOffset: Float) {
+        drawReadAloudPreviousPage(canvas, currentOffset)
         val textChapter = textPage.getTextChapter()
         var relativeOffset = currentOffset
         val textPage1 = textChapter.getPage(textPage.index + 1) ?: return
@@ -155,6 +156,17 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
         if (relativeOffset < ChapterProvider.visibleHeight) {
             textPage2.draw(this, canvas, relativeOffset)
         }
+    }
+
+    private fun drawReadAloudPreviousPage(canvas: Canvas, currentOffset: Float) {
+        if (!pageFactory.hasPrev()) return
+        val previousPage = textPage.getTextChapter().getPage(textPage.index - 1)
+            ?: pageFactory.prevPage
+        val previousOffset = ReadAloudVisualPositioner.previousPageOffset(
+            currentOffset = currentOffset,
+            previousPageHeight = previousPage.height
+        ) ?: return
+        previousPage.draw(this, canvas, previousOffset)
     }
 
     override fun computeScroll() {

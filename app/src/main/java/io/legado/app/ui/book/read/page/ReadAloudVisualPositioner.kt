@@ -4,6 +4,8 @@ import kotlin.math.roundToInt
 
 internal object ReadAloudVisualPositioner {
 
+    private const val SAFE_EDGE_RATIO = 0.15f
+
     fun calculateOffset(
         paragraphTop: Float,
         paragraphBottom: Float,
@@ -15,8 +17,8 @@ internal object ReadAloudVisualPositioner {
             return currentOffset.roundToInt()
         }
         val paragraphHeight = paragraphBottom - paragraphTop
-        val safeTop = visibleTop + visibleHeight * 0.1f
-        val safeBottom = visibleTop + visibleHeight * 0.9f
+        val safeTop = visibleTop + visibleHeight * SAFE_EDGE_RATIO
+        val safeBottom = visibleTop + visibleHeight * (1f - SAFE_EDGE_RATIO)
         if (paragraphHeight > safeBottom - safeTop) {
             return (visibleTop - paragraphTop).roundToInt()
         }
@@ -27,5 +29,15 @@ internal object ReadAloudVisualPositioner {
             currentTop < safeTop -> (safeTop - paragraphTop).roundToInt()
             else -> (safeBottom - paragraphBottom).roundToInt()
         }
+    }
+
+    fun previousPageOffset(
+        currentOffset: Float,
+        previousPageHeight: Float
+    ): Float? {
+        if (currentOffset <= 0f || previousPageHeight <= 0f) {
+            return null
+        }
+        return currentOffset - previousPageHeight
     }
 }

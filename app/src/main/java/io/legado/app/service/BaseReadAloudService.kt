@@ -330,6 +330,7 @@ abstract class BaseReadAloudService : BaseService(),
     }
 
     private fun prevP() {
+        postEvent(EventBus.READ_ALOUD_MANUAL_STEP, true)
         if (nowSpeak > 0) {
             playStop()
             do {
@@ -361,6 +362,7 @@ abstract class BaseReadAloudService : BaseService(),
     }
 
     private fun nextP() {
+        postEvent(EventBus.READ_ALOUD_MANUAL_STEP, true)
         if (nowSpeak < contentList.size - 1) {
             playStop()
             readAloudNumber += contentList[nowSpeak].length.plus(1) - paragraphStartPos

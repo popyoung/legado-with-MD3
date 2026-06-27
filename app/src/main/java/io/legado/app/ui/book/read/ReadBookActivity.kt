@@ -1198,6 +1198,7 @@ class ReadBookActivity : BaseReadBookActivity(),
         pageChanged = true
         if (BaseReadAloudService.isPlay() && !fromReadAloud) {
             readAloudVisualFollowPaused = true
+            binding.readView.curPage.resetPageOffset()
         }
         binding.readView.onPageChange()
         handler.post {
@@ -1920,6 +1921,9 @@ class ReadBookActivity : BaseReadBookActivity(),
                     readView.upContent(resetPageOffset = false)
                 }
             }
+        }
+        observeEvent<Boolean>(EventBus.READ_ALOUD_MANUAL_STEP) {
+            readAloudVisualFollowPaused = false
         }
         observeEventSticky<Int>(EventBus.TTS_PROGRESS) { chapterStart ->
             lifecycleScope.launch {

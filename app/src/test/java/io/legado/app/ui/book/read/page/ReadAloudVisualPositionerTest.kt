@@ -1,6 +1,7 @@
 package io.legado.app.ui.book.read.page
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 class ReadAloudVisualPositionerTest {
@@ -39,7 +40,7 @@ class ReadAloudVisualPositionerTest {
             visibleHeight = 1000f
         )
 
-        assertEquals(100, offset)
+        assertEquals(150, offset)
     }
 
     @Test
@@ -51,7 +52,27 @@ class ReadAloudVisualPositionerTest {
             visibleHeight = 1000f
         )
 
-        assertEquals(-100, offset)
+        assertEquals(-150, offset)
+    }
+
+    @Test
+    fun positiveOffsetDrawsPreviousPageBottomAboveCurrentPage() {
+        val offset = ReadAloudVisualPositioner.previousPageOffset(
+            currentOffset = 150f,
+            previousPageHeight = 900f
+        )
+
+        assertEquals(-750f, offset)
+    }
+
+    @Test
+    fun nonPositiveOffsetDoesNotDrawPreviousPage() {
+        val offset = ReadAloudVisualPositioner.previousPageOffset(
+            currentOffset = 0f,
+            previousPageHeight = 900f
+        )
+
+        assertNull(offset)
     }
 
     @Test
