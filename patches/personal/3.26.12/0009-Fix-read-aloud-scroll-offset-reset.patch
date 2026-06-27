@@ -1,0 +1,174 @@
+From 98548ced227059d14d0afcf515fb4de5e591773a Mon Sep 17 00:00:00 2001
+From: popyoung <popyoung@163.com>
+Date: Sat, 27 Jun 2026 14:40:53 +0800
+Subject: [PATCH 09/15] Fix read aloud scroll offset reset
+
+---
+ .github/workflows/ci.yml                      |  2 +-
+ .../app/ui/book/read/ReadBookActivity.kt      |  2 +-
+ .../app/ui/book/read/page/ContentTextView.kt  | 13 +++-
+ .../legado/app/ui/book/read/page/PageView.kt  |  4 +
+ .../page/ContentTextViewReadAloudStateTest.kt | 78 +++++++++++++++++++
+ 5 files changed, 93 insertions(+), 6 deletions(-)
+ create mode 100644 app/src/test/java/io/legado/app/ui/book/read/page/ContentTextViewReadAloudStateTest.kt
+
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index 3c2d0cf2e..8c5d70602 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -51,7 +51,7 @@ jobs:
+         run: ./gradlew --no-configuration-cache :app:compileAppDebugKotlin
+ 
+       - name: Test read aloud visual behavior
+-        run: ./gradlew --no-configuration-cache :app:testAppDebugUnitTest --tests "io.legado.app.ui.book.read.page.ReadAloudParagraphHighlighterTest" --tests "io.legado.app.ui.book.read.page.ReadAloudVisualPositionerTest"
++        run: ./gradlew --no-configuration-cache :app:testAppDebugUnitTest --tests "io.legado.app.ui.book.read.page.ReadAloudParagraphHighlighterTest" --tests "io.legado.app.ui.book.read.page.ReadAloudVisualPositionerTest" --tests "io.legado.app.ui.book.read.page.ContentTextViewReadAloudStateTest"
+ 
+       - name: Build selected APK
+         if: github.event_name == 'workflow_dispatch' && inputs.build_variant != 'check'
+diff --git a/app/src/main/java/io/legado/app/ui/book/read/ReadBookActivity.kt b/app/src/main/java/io/legado/app/ui/book/read/ReadBookActivity.kt
+index b59119721..47022db48 100644
+--- a/app/src/main/java/io/legado/app/ui/book/read/ReadBookActivity.kt
++++ b/app/src/main/java/io/legado/app/ui/book/read/ReadBookActivity.kt
+@@ -1199,7 +1199,7 @@ class ReadBookActivity : BaseReadBookActivity(),
+         pageChanged = true
+         if (BaseReadAloudService.isPlay() && !fromReadAloud) {
+             readAloudVisualFollowPaused = true
+-            binding.readView.curPage.resetPageOffset()
++            binding.readView.curPage.clearReadAloudVisualFollow()
+         }
+         binding.readView.onPageChange()
+         handler.post {
+diff --git a/app/src/main/java/io/legado/app/ui/book/read/page/ContentTextView.kt b/app/src/main/java/io/legado/app/ui/book/read/page/ContentTextView.kt
+index acbb1be06..ca3206bfd 100644
+--- a/app/src/main/java/io/legado/app/ui/book/read/page/ContentTextView.kt
++++ b/app/src/main/java/io/legado/app/ui/book/read/page/ContentTextView.kt
+@@ -253,8 +253,14 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
+      */
+     fun resetPageOffset() {
+         pageOffset = 0
+-        readAloudPageOffset = 0
++        clearReadAloudVisualFollow()
++    }
++
++    fun clearReadAloudVisualFollow() {
++        if (!readAloudFollowActive && readAloudPageOffset == 0) return
+         readAloudFollowActive = false
++        readAloudPageOffset = 0
++        postInvalidate()
+     }
+ 
+     fun followReadAloudParagraph(paragraph: TextParagraph): Boolean {
+@@ -300,9 +306,8 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
+     }
+ 
+     private fun resetReadAloudFollowByUserScroll() {
+-        if (!readAloudFollowActive) return
+-        readAloudFollowActive = false
+-        readAloudPageOffset = 0
++        if (!readAloudFollowActive && readAloudPageOffset == 0) return
++        clearReadAloudVisualFollow()
+         callBack.onReadAloudVisualFollowInterrupted()
+     }
+ 
+diff --git a/app/src/main/java/io/legado/app/ui/book/read/page/PageView.kt b/app/src/main/java/io/legado/app/ui/book/read/page/PageView.kt
+index 0c6502835..ae5a117cf 100644
+--- a/app/src/main/java/io/legado/app/ui/book/read/page/PageView.kt
++++ b/app/src/main/java/io/legado/app/ui/book/read/page/PageView.kt
+@@ -445,6 +445,10 @@ class PageView(context: Context) : FrameLayout(context) {
+         binding.contentTextView.resetPageOffset()
+     }
+ 
++    fun clearReadAloudVisualFollow() {
++        binding.contentTextView.clearReadAloudVisualFollow()
++    }
++
+     fun followReadAloudParagraph(paragraph: TextParagraph): Boolean {
+         return binding.contentTextView.followReadAloudParagraph(paragraph)
+     }
+diff --git a/app/src/test/java/io/legado/app/ui/book/read/page/ContentTextViewReadAloudStateTest.kt b/app/src/test/java/io/legado/app/ui/book/read/page/ContentTextViewReadAloudStateTest.kt
+new file mode 100644
+index 000000000..cb92d6abc
+--- /dev/null
++++ b/app/src/test/java/io/legado/app/ui/book/read/page/ContentTextViewReadAloudStateTest.kt
+@@ -0,0 +1,78 @@
++package io.legado.app.ui.book.read.page
++
++import android.app.Activity
++import android.view.MotionEvent
++import io.legado.app.ui.book.read.page.api.DataSource
++import io.legado.app.ui.book.read.page.delegate.PageDelegate
++import io.legado.app.ui.book.read.page.entities.TextChapter
++import io.legado.app.ui.book.read.page.provider.TextPageFactory
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertFalse
++import org.junit.Test
++import org.junit.runner.RunWith
++import org.robolectric.Robolectric
++import org.robolectric.RobolectricTestRunner
++
++@RunWith(RobolectricTestRunner::class)
++class ContentTextViewReadAloudStateTest {
++
++    @Test
++    fun clearReadAloudVisualFollowKeepsScrollOffset() {
++        val activity = Robolectric.buildActivity(FakeActivity::class.java).setup().get()
++        val view = ContentTextView(activity, null)
++        view.setPrivateField("pageOffset", -420)
++        view.setPrivateField("readAloudPageOffset", 120)
++        view.setPrivateField("readAloudFollowActive", true)
++
++        view.clearReadAloudVisualFollow()
++
++        assertEquals(-420, view.privateField<Int>("pageOffset"))
++        assertEquals(0, view.privateField<Int>("readAloudPageOffset"))
++        assertFalse(view.privateField<Boolean>("readAloudFollowActive"))
++    }
++
++    private fun ContentTextView.setPrivateField(name: String, value: Any) {
++        val target = this
++        javaClass.getDeclaredField(name).apply {
++            isAccessible = true
++            set(target, value)
++        }
++    }
++
++    @Suppress("UNCHECKED_CAST")
++    private fun <T> ContentTextView.privateField(name: String): T {
++        return javaClass.getDeclaredField(name).let {
++            it.isAccessible = true
++            it.get(this) as T
++        }
++    }
++
++    class FakeActivity : Activity(), ContentTextView.CallBack {
++        override val headerHeight: Int = 0
++        override val imgBgPaddingStart: Int = 0
++        override val pageFactory: TextPageFactory = TextPageFactory(FakeDataSource)
++        override val pageDelegate: PageDelegate? = null
++        override val isScroll: Boolean = true
++        override var isSelectingSearchResult: Boolean = false
++
++        override fun upSelectedStart(x: Float, y: Float, top: Float) = Unit
++        override fun upSelectedEnd(x: Float, y: Float) = Unit
++        override fun onImageLongPress(x: Float, y: Float, src: String) = Unit
++        override fun onCancelSelect() = Unit
++        override fun onLongScreenshotTouchEvent(event: MotionEvent): Boolean = false
++        override fun oldClickImg(src: String): Boolean = false
++        override fun clickImg(click: String, src: String) = Unit
++        override fun onReadAloudVisualFollowInterrupted() = Unit
++    }
++
++    object FakeDataSource : DataSource {
++        override val currentChapter: TextChapter? = null
++        override val nextChapter: TextChapter? = null
++        override val prevChapter: TextChapter? = null
++        override val isScroll: Boolean = true
++
++        override fun hasNextChapter(): Boolean = false
++        override fun hasPrevChapter(): Boolean = false
++        override fun upContent(relativePosition: Int, resetPageOffset: Boolean) = Unit
++    }
++}
+-- 
+2.33.0.windows.2
+

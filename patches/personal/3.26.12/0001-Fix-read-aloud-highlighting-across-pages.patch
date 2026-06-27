@@ -1,0 +1,515 @@
+From 1fdb4020a90baf62f63f5bb59f5067a6f0f371d1 Mon Sep 17 00:00:00 2001
+From: popyoung <popyoung@163.com>
+Date: Sat, 27 Jun 2026 04:18:38 +0800
+Subject: [PATCH 01/15] Fix read aloud highlighting across pages
+
+---
+ .github/workflows/ci.yml                      | 108 ++++++++++++++++++
+ app/build.gradle.kts                          |  12 +-
+ .../app/ui/book/read/ReadBookActivity.kt      |  50 ++++++--
+ .../app/ui/book/read/page/ContentTextView.kt  |  12 +-
+ .../page/ReadAloudParagraphHighlighter.kt     |  27 +++++
+ .../ui/book/read/page/entities/TextLine.kt    |  11 +-
+ .../ui/book/read/page/entities/TextPage.kt    |  15 ++-
+ .../page/ReadAloudParagraphHighlighterTest.kt |  76 ++++++++++++
+ gradle/libs.versions.toml                     |   2 +
+ 9 files changed, 291 insertions(+), 22 deletions(-)
+ create mode 100644 .github/workflows/ci.yml
+ create mode 100644 app/src/main/java/io/legado/app/ui/book/read/page/ReadAloudParagraphHighlighter.kt
+ create mode 100644 app/src/test/java/io/legado/app/ui/book/read/page/ReadAloudParagraphHighlighterTest.kt
+
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+new file mode 100644
+index 000000000..4161be7f2
+--- /dev/null
++++ b/.github/workflows/ci.yml
+@@ -0,0 +1,108 @@
++name: CI
++
++on:
++  push:
++    branches:
++      - "personal/**"
++      - "custom/**"
++  pull_request:
++    branches:
++      - "personal/**"
++      - "custom/**"
++  workflow_dispatch:
++    inputs:
++      build_variant:
++        description: "手动运行任务"
++        required: true
++        default: "arm64-v8a-noR8"
++        type: choice
++        options:
++          - arm64-v8a-noR8
++          - check
++
++jobs:
++  compile:
++    name: Compile Kotlin
++    runs-on: ubuntu-latest
++    if: github.event_name != 'workflow_dispatch' || inputs.build_variant == 'check'
++
++    steps:
++      - name: Checkout
++        uses: actions/checkout@v4
++
++      - name: Set up JDK 21
++        uses: actions/setup-java@v4
++        with:
++          distribution: temurin
++          java-version: "21"
++
++      - name: Set up Android SDK
++        uses: android-actions/setup-android@v3
++
++      - name: Install Android SDK packages
++        run: sdkmanager "platforms;android-37.0" "build-tools;37.0.0"
++
++      - name: Set up Gradle
++        uses: gradle/actions/setup-gradle@v4
++
++      - name: Make Gradle wrapper executable
++        run: chmod +x ./gradlew
++
++      - name: Remove Aliyun mirrors
++        run: sed -i '/maven.aliyun.com/d' settings.gradle
++
++      - name: Compile app debug Kotlin
++        run: ./gradlew --no-configuration-cache :app:compileAppDebugKotlin
++
++      - name: Test read aloud paragraph highlighting
++        run: ./gradlew --no-configuration-cache :app:testAppDebugUnitTest --tests "io.legado.app.ui.book.read.page.ReadAloudParagraphHighlighterTest"
++
++  build-apk:
++    name: Build ${{ inputs.build_variant }} APK
++    runs-on: ubuntu-latest
++    if: github.event_name == 'workflow_dispatch' && inputs.build_variant != 'check'
++
++    steps:
++      - name: Checkout
++        uses: actions/checkout@v4
++
++      - name: Set up JDK 21
++        uses: actions/setup-java@v4
++        with:
++          distribution: temurin
++          java-version: "21"
++
++      - name: Set up Android SDK
++        uses: android-actions/setup-android@v3
++
++      - name: Install Android SDK packages
++        run: sdkmanager "platforms;android-37.0" "build-tools;37.0.0"
++
++      - name: Set up Gradle
++        uses: gradle/actions/setup-gradle@v4
++
++      - name: Make Gradle wrapper executable
++        run: chmod +x ./gradlew
++
++      - name: Remove Aliyun mirrors
++        run: sed -i '/maven.aliyun.com/d' settings.gradle
++
++      - name: Build selected APK
++        run: |
++          case "${{ inputs.build_variant }}" in
++            arm64-v8a-noR8)
++              ./gradlew --no-configuration-cache -Plegado.splitAbis=arm64-v8a :app:assembleAppNoR8
++              ;;
++            *)
++              echo "Unknown build_variant: ${{ inputs.build_variant }}"
++              exit 1
++              ;;
++          esac
++
++      - name: Upload APKs
++        uses: actions/upload-artifact@v4
++        with:
++          name: legado-${{ inputs.build_variant }}-unsigned-apk
++          path: app/build/outputs/apk/**/noR8/*arm64-v8a*.apk
++          if-no-files-found: error
++          retention-days: 14
+diff --git a/app/build.gradle.kts b/app/build.gradle.kts
+index 1343b12df..082cab8d0 100644
+--- a/app/build.gradle.kts
++++ b/app/build.gradle.kts
+@@ -27,6 +27,13 @@ val versionMinor = versionProps["VERSION_MINOR"]?.toString()?.toInt() ?: 0
+ val versionPatch = versionProps["VERSION_PATCH"]?.toString()?.toInt() ?: 0
+ val appName = "legado"
+ val projectVersionName = "$versionMajor.$versionMinor.$versionPatch"
++val splitAbisProperty = providers.gradleProperty("legado.splitAbis").orNull
++val splitAbis = splitAbisProperty
++    ?.split(",")
++    ?.map { it.trim() }
++    ?.filter { it.isNotEmpty() }
++    ?.takeIf { it.isNotEmpty() }
++    ?: listOf("armeabi-v7a", "arm64-v8a")
+ 
+ android {
+     compileSdk = 37
+@@ -120,8 +127,8 @@ android {
+         abi {
+             isEnable = true
+             reset()
+-            include("armeabi-v7a", "arm64-v8a")
+-            isUniversalApk = true
++            include(*splitAbis.toTypedArray())
++            isUniversalApk = splitAbisProperty == null
+         }
+     }
+ 
+@@ -173,6 +180,7 @@ dependencies {
+     "baselineProfile"(project(":baselineprofile"))
+     coreLibraryDesugaring(libs.desugar)
+     testImplementation(libs.junit)
++    testImplementation(libs.robolectric)
+     androidTestImplementation(libs.bundles.androidTest)
+     implementation(libs.kotlin.stdlib)
+     implementation(libs.kotlinx.collections.immutable)
+diff --git a/app/src/main/java/io/legado/app/ui/book/read/ReadBookActivity.kt b/app/src/main/java/io/legado/app/ui/book/read/ReadBookActivity.kt
+index db62d85de..4e2ff4989 100644
+--- a/app/src/main/java/io/legado/app/ui/book/read/ReadBookActivity.kt
++++ b/app/src/main/java/io/legado/app/ui/book/read/ReadBookActivity.kt
+@@ -93,9 +93,12 @@ import io.legado.app.ui.book.read.config.TipConfigDialog.Companion.TITLE_COLOR
+ import io.legado.app.ui.book.read.config.ToolButtonConfigDialog
+ import io.legado.app.ui.book.read.config.UnderlineConfigDialog.Companion.U_COLOR
+ import io.legado.app.ui.book.read.page.ContentTextView
++import io.legado.app.ui.book.read.page.ReadAloudParagraphHighlighter
+ import io.legado.app.ui.book.read.page.ReadView
+ import io.legado.app.ui.book.read.page.entities.PageDirection
++import io.legado.app.ui.book.read.page.entities.TextChapter
+ import io.legado.app.ui.book.read.page.entities.TextPage
++import io.legado.app.ui.book.read.page.entities.TextParagraph
+ import io.legado.app.ui.book.read.page.provider.ChapterProvider
+ import io.legado.app.ui.book.read.page.provider.LayoutProgressListener
+ import io.legado.app.ui.book.read.page.provider.TextChapterLayout
+@@ -273,6 +276,7 @@ class ReadBookActivity : BaseReadBookActivity(),
+     private val prevPageDebounce by lazy { Debounce { keyPage(PageDirection.PREV) } }
+     private var bookChanged = false
+     private var pageChanged = false
++    private var readAloudHighlightedPageIndices = emptySet<Int>()
+     private val handler by lazy { buildMainHandler() }
+     private val screenOffRunnable by lazy { Runnable { keepScreenOn(false) } }
+     private val executor = ReadBook.executor
+@@ -1906,11 +1910,8 @@ class ReadBookActivity : BaseReadBookActivity(),
+         observeEvent<Int>(EventBus.ALOUD_STATE) {
+             if (it == Status.STOP || it == Status.PAUSE) {
+                 ReadBook.curTextChapter?.let { textChapter ->
+-                    val page = textChapter.getPageByReadPos(ReadBook.durChapterPos)
+-                    if (page != null) {
+-                        page.removePageAloudSpan()
+-                        readView.upContent(resetPageOffset = false)
+-                    }
++                    clearReadAloudParagraphSpan(textChapter)
++                    readView.upContent(resetPageOffset = false)
+                 }
+             }
+         }
+@@ -1918,11 +1919,7 @@ class ReadBookActivity : BaseReadBookActivity(),
+             lifecycleScope.launch(IO) {
+                 if (BaseReadAloudService.isPlay()) {
+                     ReadBook.curTextChapter?.let { textChapter ->
+-                        val pageIndex = ReadBook.durPageIndex
+-                        val aloudSpanStart = chapterStart - textChapter.getReadLength(pageIndex)
+-                        textChapter.getPage(pageIndex)
+-                            ?.upPageAloudSpan(aloudSpanStart)
+-                        upContent()
++                        updateReadAloudParagraphSpan(chapterStart, textChapter)
+                     }
+                 }
+             }
+@@ -1954,6 +1951,39 @@ class ReadBookActivity : BaseReadBookActivity(),
+         }
+     }
+ 
++    private fun updateReadAloudParagraphSpan(
++        chapterStart: Int,
++        textChapter: TextChapter
++    ) {
++        val paragraph = findReadAloudParagraph(textChapter, chapterStart) ?: return
++        upContent(resetPageOffset = false) {
++            readAloudHighlightedPageIndices = ReadAloudParagraphHighlighter.update(
++                paragraph = paragraph,
++                highlightedPageIndices = readAloudHighlightedPageIndices
++            ) { index ->
++                textChapter.getPage(index)
++            }
++            binding.readView.curPage.invalidateContentView()
++        }
++    }
++
++    private fun findReadAloudParagraph(
++        textChapter: TextChapter,
++        chapterStart: Int
++    ): TextParagraph? {
++        val readPosition = chapterStart.coerceAtLeast(0)
++        return textChapter.paragraphs.firstOrNull { readPosition in it.chapterIndices }
++            ?: textChapter.paragraphs.firstOrNull { readPosition <= it.chapterPosition }
++            ?: textChapter.paragraphs.lastOrNull()
++    }
++
++    private fun clearReadAloudParagraphSpan(textChapter: TextChapter) {
++        ReadAloudParagraphHighlighter.clear(readAloudHighlightedPageIndices) { index ->
++            textChapter.getPage(index)
++        }
++        readAloudHighlightedPageIndices = emptySet()
++    }
++
+     private fun upScreenTimeOut() {
+         val keepLightPrefer = getPrefString(PreferKey.keepLight)?.toInt() ?: 0
+         screenTimeOut = keepLightPrefer * 1000L
+diff --git a/app/src/main/java/io/legado/app/ui/book/read/page/ContentTextView.kt b/app/src/main/java/io/legado/app/ui/book/read/page/ContentTextView.kt
+index 855aac3be..134faf7de 100644
+--- a/app/src/main/java/io/legado/app/ui/book/read/page/ContentTextView.kt
++++ b/app/src/main/java/io/legado/app/ui/book/read/page/ContentTextView.kt
+@@ -119,17 +119,25 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
+         if (!callBack.isScroll) return
+         //滚动翻页
+         if (!pageFactory.hasNext()) return
+-        val textPage1 = relativePage(1)
++        val textPage1 = relativeDrawPage(1)
+         relativeOffset += textPage.height
+         textPage1.draw(this, canvas, relativeOffset)
+         if (!pageFactory.hasNextPlus()) return
+         relativeOffset += textPage1.height
+         if (relativeOffset < ChapterProvider.visibleHeight) {
+-            val textPage2 = relativePage(2)
++            val textPage2 = relativeDrawPage(2)
+             textPage2.draw(this, canvas, relativeOffset)
+         }
+     }
+ 
++    private fun relativeDrawPage(relativePos: Int): TextPage {
++        val textChapter = textPage.getTextChapter()
++        return when (relativePos) {
++            1 -> textChapter.getPage(textPage.index + 1) ?: pageFactory.nextPage
++            else -> textChapter.getPage(textPage.index + 2) ?: pageFactory.nextPlusPage
++        }
++    }
++
+     override fun computeScroll() {
+         pageDelegate?.computeScroll()
+         autoPager?.computeOffset()
+diff --git a/app/src/main/java/io/legado/app/ui/book/read/page/ReadAloudParagraphHighlighter.kt b/app/src/main/java/io/legado/app/ui/book/read/page/ReadAloudParagraphHighlighter.kt
+new file mode 100644
+index 000000000..9f65fd8f1
+--- /dev/null
++++ b/app/src/main/java/io/legado/app/ui/book/read/page/ReadAloudParagraphHighlighter.kt
+@@ -0,0 +1,27 @@
++package io.legado.app.ui.book.read.page
++
++import io.legado.app.ui.book.read.page.entities.TextPage
++import io.legado.app.ui.book.read.page.entities.TextParagraph
++
++internal object ReadAloudParagraphHighlighter {
++
++    fun update(
++        paragraph: TextParagraph,
++        highlightedPageIndices: Set<Int>,
++        getPage: (Int) -> TextPage?
++    ): Set<Int> {
++        val pageIndices = paragraph.textLines.map { it.textPage.index }.toSet()
++        clear(highlightedPageIndices + pageIndices, getPage)
++        paragraph.textLines.forEach { it.isReadAloud = true }
++        return pageIndices
++    }
++
++    fun clear(
++        highlightedPageIndices: Set<Int>,
++        getPage: (Int) -> TextPage?
++    ) {
++        highlightedPageIndices.forEach { index ->
++            getPage(index)?.removePageAloudSpan()
++        }
++    }
++}
+diff --git a/app/src/main/java/io/legado/app/ui/book/read/page/entities/TextLine.kt b/app/src/main/java/io/legado/app/ui/book/read/page/entities/TextLine.kt
+index 7fad78178..c7f65450b 100644
+--- a/app/src/main/java/io/legado/app/ui/book/read/page/entities/TextLine.kt
++++ b/app/src/main/java/io/legado/app/ui/book/read/page/entities/TextLine.kt
+@@ -54,7 +54,8 @@ data class TextLine(
+     val lineEnd: Float get() = textColumns.lastOrNull()?.end ?: 0f
+     val chapterIndices: IntRange get() = chapterPosition..chapterPosition + charSize
+     val height: Float inline get() = lineBottom - lineTop
+-    val canvasRecorder = CanvasRecorderFactory.create()
++    private val canvasRecorderLazy = lazy { CanvasRecorderFactory.create() }
++    private val canvasRecorder by canvasRecorderLazy
+     var searchResultColumnCount = 0
+     var isReadAloud: Boolean = false
+         set(value) {
+@@ -264,11 +265,15 @@ data class TextLine(
+     }
+ 
+     fun invalidateSelf() {
+-        canvasRecorder.invalidate()
++        if (canvasRecorderLazy.isInitialized()) {
++            canvasRecorder.invalidate()
++        }
+     }
+ 
+     fun recycleRecorder() {
+-        canvasRecorder.recycle()
++        if (canvasRecorderLazy.isInitialized()) {
++            canvasRecorder.recycle()
++        }
+     }
+ 
+     @SuppressLint("NewApi")
+diff --git a/app/src/main/java/io/legado/app/ui/book/read/page/entities/TextPage.kt b/app/src/main/java/io/legado/app/ui/book/read/page/entities/TextPage.kt
+index 561df6456..f60d70a05 100644
+--- a/app/src/main/java/io/legado/app/ui/book/read/page/entities/TextPage.kt
++++ b/app/src/main/java/io/legado/app/ui/book/read/page/entities/TextPage.kt
+@@ -44,7 +44,7 @@ data class TextPage(
+ 
+     companion object {
+         val readProgressFormatter = DecimalFormat("0.0%")
+-        val emptyTextPage = TextPage()
++        val emptyTextPage = TextPage(text = "", title = "")
+     }
+ 
+     val lines: List<TextLine> get() = textLines
+@@ -53,9 +53,10 @@ data class TextPage(
+     val chapterPosition: Int get() = textLines.first().chapterPosition
+     val searchResult = hashSetOf<TextBaseColumn>()
+     var isMsgPage: Boolean = false
+-    var canvasRecorder = CanvasRecorderFactory.create(true)
++    private val canvasRecorderLazy = lazy { CanvasRecorderFactory.create(true) }
++    private val canvasRecorder by canvasRecorderLazy
+     var doublePage = false
+-    var paddingTop = ChapterProvider.paddingTop
++    var paddingTop = 0
+     var isCompleted = false
+     var hasReadAloudSpan = false
+ 
+@@ -346,7 +347,9 @@ data class TextPage(
+     }
+ 
+     fun invalidate() {
+-        canvasRecorder.invalidate()
++        if (canvasRecorderLazy.isInitialized()) {
++            canvasRecorder.invalidate()
++        }
+     }
+ 
+     fun invalidateAll() {
+@@ -357,7 +360,9 @@ data class TextPage(
+     }
+ 
+     fun recycleRecorders() {
+-        canvasRecorder.recycle()
++        if (canvasRecorderLazy.isInitialized()) {
++            canvasRecorder.recycle()
++        }
+         for (i in lines.indices) {
+             lines[i].recycleRecorder()
+         }
+diff --git a/app/src/test/java/io/legado/app/ui/book/read/page/ReadAloudParagraphHighlighterTest.kt b/app/src/test/java/io/legado/app/ui/book/read/page/ReadAloudParagraphHighlighterTest.kt
+new file mode 100644
+index 000000000..47e8155d0
+--- /dev/null
++++ b/app/src/test/java/io/legado/app/ui/book/read/page/ReadAloudParagraphHighlighterTest.kt
+@@ -0,0 +1,76 @@
++package io.legado.app.ui.book.read.page
++
++import android.app.Application
++import io.legado.app.ui.book.read.page.entities.TextLine
++import io.legado.app.ui.book.read.page.entities.TextPage
++import io.legado.app.ui.book.read.page.entities.TextParagraph
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertFalse
++import org.junit.Assert.assertTrue
++import org.junit.Test
++import org.junit.runner.RunWith
++import org.robolectric.RobolectricTestRunner
++import org.robolectric.annotation.Config
++import splitties.init.injectAsAppCtx
++
++@RunWith(RobolectricTestRunner::class)
++@Config(
++    sdk = [34],
++    application = ReadAloudParagraphHighlighterTest.TestApplication::class
++)
++class ReadAloudParagraphHighlighterTest {
++
++    @Test
++    fun marksEveryPageTouchedByParagraph() {
++        val firstPage = textPage(0)
++        val secondPage = textPage(1)
++        val firstLine = textLine("first")
++        val secondLine = textLine("second")
++        firstPage.addLine(firstLine)
++        secondPage.addLine(secondLine)
++
++        val highlightedPages = ReadAloudParagraphHighlighter.update(
++            paragraph = TextParagraph(1, arrayListOf(firstLine, secondLine)),
++            highlightedPageIndices = emptySet()
++        ) { index -> listOf(firstPage, secondPage).getOrNull(index) }
++
++        assertEquals(setOf(0, 1), highlightedPages)
++        assertTrue(firstLine.isReadAloud)
++        assertTrue(secondLine.isReadAloud)
++    }
++
++    @Test
++    fun clearsPreviouslyHighlightedPagesBeforeMarkingNewParagraph() {
++        val oldPage = textPage(0)
++        val newPage = textPage(1)
++        val oldLine = textLine("old")
++        val newLine = textLine("new")
++        oldPage.addLine(oldLine)
++        newPage.addLine(newLine)
++        oldLine.isReadAloud = true
++
++        val highlightedPages = ReadAloudParagraphHighlighter.update(
++            paragraph = TextParagraph(2, arrayListOf(newLine)),
++            highlightedPageIndices = setOf(0)
++        ) { index -> listOf(oldPage, newPage).getOrNull(index) }
++
++        assertEquals(setOf(1), highlightedPages)
++        assertFalse(oldLine.isReadAloud)
++        assertTrue(newLine.isReadAloud)
++    }
++
++    private fun textPage(index: Int): TextPage {
++        return TextPage(index = index, text = "", title = "")
++    }
++
++    private fun textLine(text: String): TextLine {
++        return TextLine(text = text, paragraphNum = 1)
++    }
++
++    class TestApplication : Application() {
++        override fun onCreate() {
++            injectAsAppCtx()
++            super.onCreate()
++        }
++    }
++}
+diff --git a/gradle/libs.versions.toml b/gradle/libs.versions.toml
+index 68760ee17..1f0e3c285 100644
+--- a/gradle/libs.versions.toml
++++ b/gradle/libs.versions.toml
+@@ -61,6 +61,7 @@ preference = "1.2.1"
+ protobufJavalite = "4.26.1"
+ quickChineseTransfer = "0.2.16"
+ room = "2.8.4"
++robolectric = "4.16.1"
+ splitties = "3.0.0"
+ rhino = "1.9.1"
+ desugar = "2.1.5"
+@@ -229,6 +230,7 @@ json-path = { module = "com.jayway.jsonpath:json-path", version.ref = "jsonPath"
+ jsoup = { module = "org.jsoup:jsoup", version.ref = "jsoup" }
+ jsoupxpath = { module = "cn.wanghaomiao:JsoupXpath", version.ref = "jsoupxpath" }
+ junit = { module = "junit:junit", version = "4.13.2" }
++robolectric = { module = "org.robolectric:robolectric", version.ref = "robolectric" }
+ kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }
+ kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
+ kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinxSerialization" }
+
+base-commit: b7e07a6478c2beeadd8027f0a2f7376ad302b644
+-- 
+2.33.0.windows.2
+

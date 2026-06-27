@@ -1,0 +1,29 @@
+From 37a703df940370cb29b2ecf78ddc787f132fa53d Mon Sep 17 00:00:00 2001
+From: popyoung <popyoung@163.com>
+Date: Sat, 27 Jun 2026 16:09:11 +0800
+Subject: [PATCH 15/15] Clarify committed patch archive export range
+
+---
+ docs/personal-patch-workflow.md | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/docs/personal-patch-workflow.md b/docs/personal-patch-workflow.md
+index b109cc2c1..e15bfae1f 100644
+--- a/docs/personal-patch-workflow.md
++++ b/docs/personal-patch-workflow.md
+@@ -35,6 +35,12 @@ Keep personal changes as small, topic-focused commits. Export them from the curr
+ git format-patch --base=upstream/3.27 -o patches/personal/3.27 upstream/3.27..personal/3.27-tts
+ ```
+ 
++If patch files are committed back to the personal branch, do not include the patch archive commit in the next export range. Use the last non-patch commit as the range end:
++
++```bash
++git format-patch --base=upstream/3.27 -o patches/personal/3.27 upstream/3.27..<last-non-patch-commit>
++```
++
+ Recommended patch topics:
+ 
+ - GitHub Actions build workflow
+-- 
+2.33.0.windows.2
+

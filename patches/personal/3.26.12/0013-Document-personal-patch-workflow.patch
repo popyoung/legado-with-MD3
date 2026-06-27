@@ -1,0 +1,171 @@
+From c53a68c4f7275456c3695a4828cc6720d939bf60 Mon Sep 17 00:00:00 2001
+From: popyoung <popyoung@163.com>
+Date: Sat, 27 Jun 2026 15:56:56 +0800
+Subject: [PATCH 13/15] Document personal patch workflow
+
+---
+ AGENTS.md                       |  10 ++++
+ CLAUDE.md                       |  12 ++++
+ docs/personal-patch-workflow.md | 103 ++++++++++++++++++++++++++++++++
+ 3 files changed, 125 insertions(+)
+ create mode 100644 AGENTS.md
+ create mode 100644 docs/personal-patch-workflow.md
+
+diff --git a/AGENTS.md b/AGENTS.md
+new file mode 100644
+index 000000000..1473e5d7f
+--- /dev/null
++++ b/AGENTS.md
+@@ -0,0 +1,10 @@
++# Agent Instructions
++
++## Personal Fork Maintenance
++
++- Read `docs/personal-patch-workflow.md` before changing branch, patch, release, TTS, or build workflow behavior.
++- `main` is pure upstream main. Do not commit personal changes to `main`.
++- Use `upstream/<version>` branches, such as `upstream/3.27`, to record formal release baselines when upstream tags are unavailable.
++- Keep personal changes on `personal/<version>-tts` or `personal/main`.
++- Do not run local JDK, SDK, NDK, Gradle, or `gradlew` commands for this project unless the user explicitly asks.
++- Verification and APK packaging must use the single GitHub Actions workflow `.github/workflows/ci.yml`.
+diff --git a/CLAUDE.md b/CLAUDE.md
+index 4bc42530f..b7f3ff620 100644
+--- a/CLAUDE.md
++++ b/CLAUDE.md
+@@ -2,6 +2,16 @@
+ 
+ This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+ 
++## Personal Fork Maintenance
++
++For this personal fork, first read `docs/personal-patch-workflow.md` before changing branch, patch, release, TTS, or build workflow behavior.
++
++- `main` is pure upstream main. Do not commit personal changes to `main`.
++- Formal release baselines are recorded as `upstream/<version>` branches, such as `upstream/3.27`, when upstream tags are unavailable.
++- Personal changes live on `personal/<version>-tts` or `personal/main`.
++- Do not run local JDK, SDK, NDK, Gradle, or `gradlew` checks unless explicitly requested.
++- Verification and APK packaging use the single GitHub Actions workflow in `.github/workflows/ci.yml`.
++
+ ## Coding Guidelines
+ 
+ **Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
+@@ -39,6 +49,8 @@ Transform tasks into verifiable goals:
+ 
+ ## Build / Test / Run
+ 
++The commands below are upstream reference commands only. For this personal fork, do not run them by default; use GitHub Actions as described in `docs/personal-patch-workflow.md`.
++
+ ```bash
+ # Quick compile check (Kotlin only, no dex/package — fastest for verifying code compiles)
+ .\gradlew.bat :app:compileAppDebugKotlin
+diff --git a/docs/personal-patch-workflow.md b/docs/personal-patch-workflow.md
+new file mode 100644
+index 000000000..b109cc2c1
+--- /dev/null
++++ b/docs/personal-patch-workflow.md
+@@ -0,0 +1,103 @@
++# Personal Patch Workflow
++
++This fork follows upstream closely while keeping a small personal patch stack.
++Use this workflow for every upstream main update or new formal release base.
++
++## Fixed Rules
++
++- `main` is pure upstream `main`. Do not commit personal changes to `main`.
++- Release baselines are recorded as `upstream/<version>` branches, for example `upstream/3.27`.
++- Personal integration branches are named `personal/<version>-tts`, for example `personal/3.27-tts`.
++- Long-lived personal work against upstream main may use `personal/main`.
++- Local Android toolchains are not used for this project. Do not run local JDK, SDK, NDK, Gradle, or `gradlew` checks unless explicitly requested.
++- Verification and APK packaging use the single GitHub Actions workflow in `.github/workflows/ci.yml`.
++- The workflow has one path only: compile, test, build `arm64-v8a` noR8 APK, upload artifact. Failures naturally stop later steps.
++
++## Creating a New Release Base
++
++When upstream publishes a release but there is no upstream tag in this repo, create an explicit baseline branch:
++
++```bash
++git fetch origin
++git switch main
++git pull --ff-only
++git branch upstream/3.27 <commit-that-matches-the-release-source>
++git push origin upstream/3.27
++```
++
++The `<commit-that-matches-the-release-source>` must be the source commit used by the release APK/source archive, not just the latest upstream main commit.
++
++## Exporting Personal Patches
++
++Keep personal changes as small, topic-focused commits. Export them from the current personal branch against its upstream baseline:
++
++```bash
++git format-patch --base=upstream/3.27 -o patches/personal/3.27 upstream/3.27..personal/3.27-tts
++```
++
++Recommended patch topics:
++
++- GitHub Actions build workflow
++- TTS visual following and highlight behavior
++- TTS manual previous/next paragraph positioning
++- Version, package, or release-specific build configuration
++
++Avoid one large patch. Small patches make conflicts easier to isolate.
++
++## Applying Patches to a New Release
++
++Create the new personal branch from the release baseline, then apply the patch stack with three-way merge:
++
++```bash
++git switch -c personal/3.28-tts upstream/3.28
++git am -3 patches/personal/3.27/*.patch
++```
++
++Use `-3` so Git can use three-way merge when upstream context changed.
++
++## Conflict Handling
++
++Enable recorded conflict resolution once:
++
++```bash
++git config rerere.enabled true
++```
++
++When `git am -3` stops on a conflict:
++
++```bash
++git status
++# edit conflicted files
++git add <fixed-files>
++git am --continue
++```
++
++If a patch is obsolete for the new release:
++
++```bash
++git am --skip
++```
++
++If the application attempt should be discarded:
++
++```bash
++git am --abort
++```
++
++After resolving conflicts, inspect the resulting diff by feature area before pushing.
++
++## Verification
++
++Do not verify with local Gradle. Trigger the single GitHub Actions workflow:
++
++```bash
++gh workflow run ci.yml --ref personal/3.28-tts
++```
++
++The expected artifact is:
++
++```text
++legado-arm64-v8a-noR8-unsigned-apk
++```
++
++If the workflow fails, inspect the failing GitHub Actions logs and fix only the relevant patch.
+-- 
+2.33.0.windows.2
+

@@ -1,0 +1,95 @@
+From d374a4231af3db11b775ca884fb0e5db1f342751 Mon Sep 17 00:00:00 2001
+From: popyoung <popyoung@163.com>
+Date: Sat, 27 Jun 2026 15:25:28 +0800
+Subject: [PATCH 12/15] Align read aloud chapter before manual steps
+
+---
+ app/src/main/java/io/legado/app/model/ReadBook.kt | 15 +++++++++++++++
+ .../io/legado/app/service/BaseReadAloudService.kt | 10 ++++++++++
+ 2 files changed, 25 insertions(+)
+
+diff --git a/app/src/main/java/io/legado/app/model/ReadBook.kt b/app/src/main/java/io/legado/app/model/ReadBook.kt
+index 7e86b5576..378c655fb 100644
+--- a/app/src/main/java/io/legado/app/model/ReadBook.kt
++++ b/app/src/main/java/io/legado/app/model/ReadBook.kt
+@@ -529,6 +529,21 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
+         saveRead(true)
+     }
+ 
++    fun alignToReadAloudChapter(textChapter: TextChapter, chapterPos: Int) {
++        val chapterIndex = textChapter.chapter.index
++        if (chapterIndex !in 0 until simulatedChapterSize) return
++        durChapterPos = chapterPos.coerceAtLeast(0)
++        if (durChapterIndex == chapterIndex && curTextChapter === textChapter) {
++            return
++        }
++        durChapterIndex = chapterIndex
++        msg = null
++        curTextChapter = textChapter
++        prevTextChapter = null
++        nextTextChapter = null
++        clearExpiredChapterLoadingJob()
++    }
++
+     fun setPageIndex(index: Int) {
+         recycleRecorders(durPageIndex, index)
+         durChapterPos = curTextChapter?.getReadLength(index) ?: index
+diff --git a/app/src/main/java/io/legado/app/service/BaseReadAloudService.kt b/app/src/main/java/io/legado/app/service/BaseReadAloudService.kt
+index 06f817109..a0b49bdfe 100644
+--- a/app/src/main/java/io/legado/app/service/BaseReadAloudService.kt
++++ b/app/src/main/java/io/legado/app/service/BaseReadAloudService.kt
+@@ -343,6 +343,7 @@ abstract class BaseReadAloudService : BaseService(),
+                     val paragraphs = it.getParagraphs(true)
+                     if (!paragraphs[nowSpeak].isParagraphEnd) readAloudNumber++
+                 }
++                alignReadBookToReadAloudChapter()
+                 if (readAloudNumber < it.getReadLength(pageIndex)) {
+                     pageIndex--
+                     ReadBook.withReadAloudPageChange {
+@@ -356,6 +357,7 @@ abstract class BaseReadAloudService : BaseService(),
+         } else {
+             toLast = true
+             ReadBook.withReadAloudPageChange {
++                alignReadBookToReadAloudChapter()
+                 ReadBook.moveToPrevChapter(true)
+             }
+         }
+@@ -373,6 +375,7 @@ abstract class BaseReadAloudService : BaseService(),
+                     val paragraphs = it.getParagraphs(true)
+                     if (!paragraphs[nowSpeak].isParagraphEnd) readAloudNumber--
+                 }
++                alignReadBookToReadAloudChapter()
+                 if (pageIndex + 1 < it.pageSize
+                     && readAloudNumber >= it.getReadLength(pageIndex + 1)
+                 ) {
+@@ -390,6 +393,11 @@ abstract class BaseReadAloudService : BaseService(),
+         }
+     }
+ 
++    private fun alignReadBookToReadAloudChapter() {
++        val textChapter = textChapter ?: return
++        ReadBook.alignToReadAloudChapter(textChapter, readAloudNumber)
++    }
++
+     private fun setTimer(minute: Int) {
+         timeMinute = minute
+         doDs()
+@@ -713,6 +721,7 @@ abstract class BaseReadAloudService : BaseService(),
+         toLast = false
+         resumeReadAloudInternal()
+         ReadBook.withReadAloudPageChange {
++            alignReadBookToReadAloudChapter()
+             ReadBook.moveToPrevChapter(true, toLast = false)
+         }
+     }
+@@ -722,6 +731,7 @@ abstract class BaseReadAloudService : BaseService(),
+         AppLog.putDebug("${ReadBook.curTextChapter?.chapter?.title} 朗读结束跳转下一章并朗读")
+         resumeReadAloudInternal()
+         val moved = ReadBook.withReadAloudPageChange {
++            alignReadBookToReadAloudChapter()
+             ReadBook.moveToNextChapter(true)
+         }
+         if (!moved) {
+-- 
+2.33.0.windows.2
+
