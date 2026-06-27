@@ -2,6 +2,16 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Personal Fork Maintenance
+
+For this personal fork, first read `docs/personal-patch-workflow.md` before changing branch, patch, release, TTS, or build workflow behavior.
+
+- `main` is pure upstream main. Do not commit personal changes to `main`.
+- Formal release baselines are recorded as `upstream/<version>` branches, such as `upstream/3.27`, when upstream tags are unavailable.
+- Personal changes live on `personal/<version>-tts` or `personal/main`.
+- Do not run local JDK, SDK, NDK, Gradle, or `gradlew` checks unless explicitly requested.
+- Verification and APK packaging use the single GitHub Actions workflow in `.github/workflows/ci.yml`.
+
 ## Coding Guidelines
 
 **Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
@@ -38,6 +48,8 @@ Transform tasks into verifiable goals:
 - "Refactor X" → "Ensure tests pass before and after"
 
 ## Build / Test / Run
+
+The commands below are upstream reference commands only. For this personal fork, do not run them by default; use GitHub Actions as described in `docs/personal-patch-workflow.md`.
 
 ```bash
 # Quick compile check (Kotlin only, no dex/package — fastest for verifying code compiles)
