@@ -163,6 +163,10 @@ class Coroutine<T>(
         return job.invokeOnCompletion(handler)
     }
 
+    suspend fun join() {
+        job.join()
+    }
+
     fun start() {
         job.start()
     }

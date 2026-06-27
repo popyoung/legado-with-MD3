@@ -1512,25 +1512,15 @@ class ReadBookActivity : BaseReadBookActivity(),
 
             BaseReadAloudService.pause -> {
                 readAloudVisualFollowPaused = false
-                val scrollPageAnim = ReadBook.pageAnim() == 3
-                if (scrollPageAnim && pageChanged) {
+                if (ReadAloudVisualPositioner.shouldRestoreStoredPositionOnResume(
+                        readAloudPaused = BaseReadAloudService.pause,
+                        visualPageChanged = pageChanged
+                    )
+                ) {
                     pageChanged = false
-                    val pos = binding.readView.getReadAloudPos()
-                    if (pos != null) {
-                        val (index, line) = pos
-                        if (ReadBook.durChapterIndex != index) {
-                            ReadBook.openChapter(index, line.chapterPosition, false) {
-                                readAloudFromLineParagraphStart(line)
-                            }
-                        } else {
-                            readAloudFromLineParagraphStart(line)
-                        }
-                    } else {
-                        ReadBook.readAloud()
-                    }
-                } else {
-                    ReadAloud.resume(this)
+                    restoreReadAloudVisualPosition()
                 }
+                ReadAloud.resume(this)
             }
 
             else -> ReadAloud.pause(this)

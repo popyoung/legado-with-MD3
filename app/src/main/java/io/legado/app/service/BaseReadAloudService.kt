@@ -322,6 +322,7 @@ abstract class BaseReadAloudService : BaseService(),
     @SuppressLint("WakelockTimeout")
     @CallSuper
     open fun resumeReadAloud() {
+        restoreReadBookToReadAloudPosition()
         resumeReadAloudInternal()
     }
 
@@ -372,11 +373,7 @@ abstract class BaseReadAloudService : BaseService(),
             upMediaMetadata(showContent = true)
             play()
         } else {
-            toLast = true
-            ReadBook.withReadAloudPageChange {
-                alignReadBookToReadAloudChapter()
-                ReadBook.moveToPrevChapter(true)
-            }
+            moveToPrevChapterAndRead(toLast = true)
         }
     }
 
@@ -410,9 +407,17 @@ abstract class BaseReadAloudService : BaseService(),
         }
     }
 
-    private fun alignReadBookToReadAloudChapter() {
+    private fun alignReadBookToReadAloudChapter(preloadAdjacent: Boolean = true) {
         val textChapter = textChapter ?: return
-        ReadBook.alignToReadAloudChapter(textChapter, readAloudNumber)
+        ReadBook.alignToReadAloudChapter(textChapter, readAloudNumber, preloadAdjacent)
+    }
+
+    private fun restoreReadBookToReadAloudPosition() {
+        val textChapter = textChapter ?: return
+        ReadBook.withReadAloudPageChange {
+            ReadBook.alignToReadAloudChapter(textChapter, readAloudNumber)
+        }
+        upTtsProgress(readAloudNumber + 1)
     }
 
     private fun setTimer(minute: Int) {
@@ -735,24 +740,37 @@ abstract class BaseReadAloudService : BaseService(),
     abstract fun aloudServicePendingIntent(actionStr: String): PendingIntent?
 
     open fun prevChapter() {
-        toLast = false
-        resumeReadAloudInternal()
-        ReadBook.withReadAloudPageChange {
-            alignReadBookToReadAloudChapter()
-            ReadBook.moveToPrevChapter(true, toLast = false)
-        }
+        moveToPrevChapterAndRead(toLast = false)
     }
 
     open fun nextChapter() {
         ReadBook.upReadTime()
         AppLog.putDebug("${ReadBook.curTextChapter?.chapter?.title} 朗读结束跳转下一章并朗读")
-        resumeReadAloudInternal()
-        val moved = ReadBook.withReadAloudPageChange {
-            alignReadBookToReadAloudChapter()
-            ReadBook.moveToNextChapter(true)
+        execute {
+            resumeReadAloudInternal()
+            val moved = ReadBook.withReadAloudPageChangeAwait {
+                alignReadBookToReadAloudChapter(preloadAdjacent = false)
+                ReadBook.moveToNextChapterAwait(true, upContentInPlace = false)
+            }
+            if (moved) {
+                ReadBook.readAloud()
+            } else {
+                stopSelf()
+            }
         }
-        if (!moved) {
-            stopSelf()
+    }
+
+    private fun moveToPrevChapterAndRead(toLast: Boolean) {
+        this.toLast = toLast
+        execute {
+            resumeReadAloudInternal()
+            val moved = ReadBook.withReadAloudPageChangeAwait {
+                alignReadBookToReadAloudChapter(preloadAdjacent = false)
+                ReadBook.moveToPrevChapterAwait(true, toLast = toLast, upContentInPlace = false)
+            }
+            if (moved) {
+                ReadBook.readAloud()
+            }
         }
     }
 

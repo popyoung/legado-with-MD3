@@ -114,6 +114,15 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
         }
     }
 
+    suspend fun <T> withReadAloudPageChangeAwait(block: suspend () -> T): T {
+        readAloudPageChangeDepth++
+        return try {
+            block()
+        } finally {
+            readAloudPageChangeDepth--
+        }
+    }
+
     private val ioScope = CoroutineScope(IO)
 
     private var autoSaveJob: Job? = null
@@ -441,7 +450,7 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
             prevTextChapter = curTextChapter
             curTextChapter = nextTextChapter
             nextTextChapter = null
-            if (curTextChapter == null) {
+            if (curTextChapter == null || curTextChapter?.isCompleted == false) {
                 AppLog.putDebug("moveToNextChapter-章节未加载,开始加载")
                 if (upContentInPlace) callBack?.upContent()
                 loadContent(durChapterIndex, upContent, resetPageOffset = false)
@@ -472,7 +481,7 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
             prevTextChapter = curTextChapter
             curTextChapter = nextTextChapter
             nextTextChapter = null
-            if (curTextChapter == null) {
+            if (curTextChapter == null || curTextChapter?.isCompleted == false) {
                 AppLog.putDebug("moveToNextChapter-章节未加载,开始加载")
                 if (upContentInPlace) callBack?.upContentAwait()
                 loadContentAwait(durChapterIndex, upContent, resetPageOffset = false)
@@ -520,6 +529,34 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
         }
     }
 
+    suspend fun moveToPrevChapterAwait(
+        upContent: Boolean,
+        toLast: Boolean = true,
+        upContentInPlace: Boolean = true
+    ): Boolean {
+        if (durChapterIndex > 0) {
+            durChapterPos = if (toLast) prevTextChapter?.lastReadLength ?: Int.MAX_VALUE else 0
+            durChapterIndex--
+            clearExpiredChapterLoadingJob()
+            nextTextChapter = curTextChapter
+            curTextChapter = prevTextChapter
+            prevTextChapter = null
+            if (curTextChapter == null || curTextChapter?.isCompleted == false) {
+                if (upContentInPlace) callBack?.upContentAwait()
+                loadContentAwait(durChapterIndex, upContent, resetPageOffset = false)
+            } else if (upContent && upContentInPlace) {
+                callBack?.upContentAwait()
+            }
+            loadContent(durChapterIndex.minus(1), upContent, false)
+            saveRead()
+            callBack?.upMenuView()
+            curPageChanged()
+            return true
+        } else {
+            return false
+        }
+    }
+
     fun skipToPage(index: Int, success: (() -> Unit)? = null) {
         durChapterPos = curTextChapter?.getReadLength(index) ?: index
         callBack?.upContent {
@@ -529,7 +566,11 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
         saveRead(true)
     }
 
-    fun alignToReadAloudChapter(textChapter: TextChapter, chapterPos: Int) {
+    fun alignToReadAloudChapter(
+        textChapter: TextChapter,
+        chapterPos: Int,
+        preloadAdjacent: Boolean = true
+    ) {
         val chapterIndex = textChapter.chapter.index
         if (chapterIndex !in 0 until simulatedChapterSize) return
         durChapterPos = chapterPos.coerceAtLeast(0)
@@ -547,6 +588,7 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
             it !== textChapter && it.isCompleted && it.chapter.index == chapterIndex + 1
         }
         clearExpiredChapterLoadingJob()
+        if (!preloadAdjacent) return
         if (prevTextChapter == null) {
             loadContent(chapterIndex - 1, upContent = false, resetPageOffset = false)
         }
@@ -743,24 +785,46 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
         resetPageOffset: Boolean = false,
         success: (() -> Unit)? = null
     ) = withContext(IO) {
-        if (addLoading(index)) {
-            try {
-                val book = book!!
-                val chapter = appDb.bookChapterDao.getChapter(book.bookUrl, index)!!
-                val content = BookHelp.getContent(book, chapter) ?: downloadAwait(chapter)
-                contentLoadFinishAwait(book, chapter, content, upContent, resetPageOffset)
-                success?.invoke()
-            } catch (e: Exception) {
+        if (!addLoading(index)) {
+            waitChapterLoading(index)
+            return@withContext
+        }
+        try {
+            val book = book!!
+            val chapter = appDb.bookChapterDao.getChapter(book.bookUrl, index)!!
+            val content = BookHelp.getContent(book, chapter) ?: downloadAwait(chapter)
+            contentLoadFinishAwait(book, chapter, content, upContent, resetPageOffset)
+            success?.invoke()
+        } catch (e: Exception) {
                 AppLog.put("加载正文出错\n${e.localizedMessage}")
-            } finally {
-                removeLoading(index)
-            }
+        } finally {
+            removeLoading(index)
         }
     }
 
     /**
      * 下载正文
      */
+    private suspend fun waitChapterLoading(index: Int) {
+        try {
+            withTimeout(30_000L) {
+                while (true) {
+                    chapterLoadingJobs[index]?.let {
+                        it.join()
+                        return@withTimeout
+                    }
+                    val isLoading = synchronized(this@ReadBook) {
+                        loadingChapters.contains(index)
+                    }
+                    if (!isLoading) return@withTimeout
+                    delay(50)
+                }
+            }
+        } catch (_: TimeoutCancellationException) {
+            AppLog.put("Wait chapter loading timeout for chapter $index")
+        }
+    }
+
     private suspend fun downloadIndex(index: Int) {
         if (index < 0) return
         if (index > chapterSize - 1) {

@@ -63,6 +63,14 @@ internal object ReadAloudVisualPositioner {
         return visualPositionEnabled && readAloudRunning && !readAloudPositionVisible
     }
 
+    @Suppress("UNUSED_PARAMETER")
+    fun shouldRestoreStoredPositionOnResume(
+        readAloudPaused: Boolean,
+        visualPageChanged: Boolean
+    ): Boolean {
+        return readAloudPaused
+    }
+
     fun clearFollowState(state: FollowState): FollowState {
         return state.copy(readAloudOffset = 0, active = false)
     }

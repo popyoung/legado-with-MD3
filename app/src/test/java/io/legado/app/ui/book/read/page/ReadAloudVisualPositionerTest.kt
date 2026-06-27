@@ -133,6 +133,26 @@ class ReadAloudVisualPositionerTest {
     }
 
     @Test
+    fun pausedResumeUsesStoredReadAloudPositionEvenAfterVisualPageChanged() {
+        val shouldRestore = ReadAloudVisualPositioner.shouldRestoreStoredPositionOnResume(
+            readAloudPaused = true,
+            visualPageChanged = true
+        )
+
+        assertTrue(shouldRestore)
+    }
+
+    @Test
+    fun nonPausedStateDoesNotRunStoredPositionResumePath() {
+        val shouldRestore = ReadAloudVisualPositioner.shouldRestoreStoredPositionOnResume(
+            readAloudPaused = false,
+            visualPageChanged = true
+        )
+
+        assertFalse(shouldRestore)
+    }
+
+    @Test
     fun clearFollowStateKeepsScrollOffset() {
         val state = ReadAloudVisualPositioner.clearFollowState(
             ReadAloudVisualPositioner.FollowState(
