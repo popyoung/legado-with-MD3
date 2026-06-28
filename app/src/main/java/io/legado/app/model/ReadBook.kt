@@ -644,7 +644,13 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
         val fromReadAloud = readAloudPageChangeDepth > 0
         callBack?.pageChanged(fromReadAloud)
         curTextChapter?.let {
-            if (BaseReadAloudService.isRun && BaseReadAloudService.pause && it.isCompleted) {
+            if (ReadAloudPageChangePolicy.shouldRestartPausedServiceFromVisualPage(
+                    readAloudRunning = BaseReadAloudService.isRun,
+                    readAloudPaused = BaseReadAloudService.pause,
+                    visualChapterCompleted = it.isCompleted,
+                    visualChapterChanged = it.chapter.index != BaseReadAloudService.readAloudChapterIndex
+                )
+            ) {
                 val scrollPageAnim = pageAnim() == 3
                 if (scrollPageAnim && pageChanged) {
                     ReadAloud.pause(appCtx)
