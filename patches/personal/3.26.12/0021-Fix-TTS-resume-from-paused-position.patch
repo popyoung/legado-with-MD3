@@ -1,0 +1,262 @@
+From d5b986986cf654a517b592ac33b12dcde89fbe86 Mon Sep 17 00:00:00 2001
+From: popyoung <popyoung@163.com>
+Date: Sun, 28 Jun 2026 16:28:08 +0800
+Subject: [PATCH] Fix TTS resume from paused position
+
+---
+ .github/workflows/ci.yml                      |  4 +-
+ .../app/service/BaseReadAloudService.kt       | 29 +++++++++++++++
+ .../legado/app/service/ReadAloudProgress.kt   | 27 ++++++++++++++
+ .../legado/app/service/TTSReadAloudService.kt | 13 +++++++
+ .../app/service/ReadAloudProgressTest.kt      | 37 +++++++++++++++++++
+ 5 files changed, 108 insertions(+), 2 deletions(-)
+ create mode 100644 app/src/main/java/io/legado/app/service/ReadAloudProgress.kt
+ create mode 100644 app/src/test/java/io/legado/app/service/ReadAloudProgressTest.kt
+
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index 1191558bd..1a57e6a1d 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -40,8 +40,8 @@ jobs:
+       - name: Compile app debug Kotlin
+         run: ./gradlew --no-configuration-cache :app:compileAppDebugKotlin
+ 
+-      - name: Test read aloud visual behavior
+-        run: ./gradlew --no-configuration-cache :app:testAppDebugUnitTest --tests "io.legado.app.ui.book.read.page.ReadAloudParagraphHighlighterTest" --tests "io.legado.app.ui.book.read.page.ReadAloudVisualPositionerTest"
++      - name: Test read aloud behavior
++        run: ./gradlew --no-configuration-cache :app:testAppDebugUnitTest --tests "io.legado.app.ui.book.read.page.ReadAloudParagraphHighlighterTest" --tests "io.legado.app.ui.book.read.page.ReadAloudVisualPositionerTest" --tests "io.legado.app.service.ReadAloudProgressTest"
+ 
+       - name: Build arm64-v8a noR8 APK
+         run: ./gradlew --no-configuration-cache -Plegado.splitAbis=arm64-v8a :app:assembleAppNoR8
+diff --git a/app/src/main/java/io/legado/app/service/BaseReadAloudService.kt b/app/src/main/java/io/legado/app/service/BaseReadAloudService.kt
+index 9b080419e..969f5dcf0 100644
+--- a/app/src/main/java/io/legado/app/service/BaseReadAloudService.kt
++++ b/app/src/main/java/io/legado/app/service/BaseReadAloudService.kt
+@@ -140,6 +140,7 @@ abstract class BaseReadAloudService : BaseService(),
+     var paragraphStartPos = 0
+     var readAloudByPage = false
+         private set
++    private var rememberedReadAloudPosition: ReadAloudProgress.Position? = null
+ 
+     private val broadcastReceiver = object : BroadcastReceiver() {
+         override fun onReceive(context: Context, intent: Intent) {
+@@ -277,6 +278,7 @@ abstract class BaseReadAloudService : BaseService(),
+             }
+             updateReadAloudPosition(readAloudNumber + 1)
+             paragraphStartPos = pos
++            rememberCurrentReadAloudPosition()
+             launch(Main) {
+                 upMediaMetadata()
+                 if (play) play() else pageChanged = true
+@@ -342,6 +344,30 @@ abstract class BaseReadAloudService : BaseService(),
+         postEvent(EventBus.TTS_PROGRESS, progress)
+     }
+ 
++    protected fun rememberCurrentReadAloudPosition() {
++        rememberReadAloudPosition(
++            ReadAloudProgress.Position(
++                readAloudNumber = readAloudNumber,
++                paragraphStartPos = paragraphStartPos,
++                nowSpeak = nowSpeak,
++                pageIndex = pageIndex
++            )
++        )
++    }
++
++    protected fun rememberReadAloudPosition(position: ReadAloudProgress.Position) {
++        rememberedReadAloudPosition = position
++        updateReadAloudPosition(position.readAloudNumber + 1)
++    }
++
++    protected fun applyRememberedReadAloudPosition() {
++        val position = rememberedReadAloudPosition ?: return
++        readAloudNumber = position.readAloudNumber
++        paragraphStartPos = position.paragraphStartPos
++        nowSpeak = position.nowSpeak
++        pageIndex = position.pageIndex
++    }
++
+     private fun updateReadAloudPosition(progress: Int) {
+         readAloudChapterIndex = textChapter?.chapter?.index ?: -1
+         readAloudChapterStart = progress.coerceAtLeast(0)
+@@ -370,6 +396,7 @@ abstract class BaseReadAloudService : BaseService(),
+                 }
+             }
+             upTtsProgress(readAloudNumber + 1)
++            rememberCurrentReadAloudPosition()
+             upMediaMetadata(showContent = true)
+             play()
+         } else {
+@@ -400,6 +427,7 @@ abstract class BaseReadAloudService : BaseService(),
+                 }
+             }
+             upTtsProgress(readAloudNumber + 1)
++            rememberCurrentReadAloudPosition()
+             upMediaMetadata(showContent = true)
+             play()
+         } else {
+@@ -418,6 +446,7 @@ abstract class BaseReadAloudService : BaseService(),
+             ReadBook.alignToReadAloudChapter(textChapter, readAloudNumber)
+         }
+         upTtsProgress(readAloudNumber + 1)
++        rememberCurrentReadAloudPosition()
+     }
+ 
+     private fun restartReadAloudFromReadBook(toLastChapterEnd: Boolean = false) {
+diff --git a/app/src/main/java/io/legado/app/service/ReadAloudProgress.kt b/app/src/main/java/io/legado/app/service/ReadAloudProgress.kt
+new file mode 100644
+index 000000000..95c5acf56
+--- /dev/null
++++ b/app/src/main/java/io/legado/app/service/ReadAloudProgress.kt
+@@ -0,0 +1,27 @@
++package io.legado.app.service
++
++internal object ReadAloudProgress {
++
++    data class Position(
++        val readAloudNumber: Int,
++        val paragraphStartPos: Int,
++        val nowSpeak: Int,
++        val pageIndex: Int
++    )
++
++    fun fromRangeStart(
++        readAloudNumber: Int,
++        paragraphStartPos: Int,
++        rangeStart: Int,
++        nowSpeak: Int,
++        pageIndex: Int
++    ): Position {
++        val safeRangeStart = rangeStart.coerceAtLeast(0)
++        return Position(
++            readAloudNumber = readAloudNumber.coerceAtLeast(0) + safeRangeStart,
++            paragraphStartPos = paragraphStartPos.coerceAtLeast(0) + safeRangeStart,
++            nowSpeak = nowSpeak.coerceAtLeast(0),
++            pageIndex = pageIndex.coerceAtLeast(0)
++        )
++    }
++}
+diff --git a/app/src/main/java/io/legado/app/service/TTSReadAloudService.kt b/app/src/main/java/io/legado/app/service/TTSReadAloudService.kt
+index 6f56d8d7b..c9de89cd5 100644
+--- a/app/src/main/java/io/legado/app/service/TTSReadAloudService.kt
++++ b/app/src/main/java/io/legado/app/service/TTSReadAloudService.kt
+@@ -178,6 +178,7 @@ class TTSReadAloudService : BaseReadAloudService(), TextToSpeech.OnInitListener
+      * 恢复朗读
+      */
+     override fun resumeReadAloud() {
++        applyRememberedReadAloudPosition()
+         super.resumeReadAloud()
+         play()
+     }
+@@ -200,6 +201,7 @@ class TTSReadAloudService : BaseReadAloudService(), TextToSpeech.OnInitListener
+                 ) {
+                     pageIndex++
+                 }
++                rememberCurrentReadAloudPosition()
+                 upTtsProgress(readAloudNumber + 1)
+                 upMediaMetadata(showContent = true)
+             }
+@@ -216,11 +218,21 @@ class TTSReadAloudService : BaseReadAloudService(), TextToSpeech.OnInitListener
+                 "onRangeStart nowSpeak:$nowSpeak pageIndex:$pageIndex utteranceId:$utteranceId start:$start end:$end frame:$frame"
+             LogUtils.d(TAG, msg)
+             textChapter?.let {
++                val position = ReadAloudProgress.fromRangeStart(
++                    readAloudNumber = readAloudNumber,
++                    paragraphStartPos = paragraphStartPos,
++                    rangeStart = start,
++                    nowSpeak = nowSpeak,
++                    pageIndex = pageIndex
++                )
+                 if (pageIndex + 1 < it.pageSize
+                     && readAloudNumber + start > it.getReadLength(pageIndex + 1)
+                 ) {
+                     pageIndex++
++                    rememberReadAloudPosition(position.copy(pageIndex = pageIndex))
+                     upTtsProgress(readAloudNumber + start)
++                } else {
++                    rememberReadAloudPosition(position)
+                 }
+             }
+         }
+@@ -244,6 +256,7 @@ class TTSReadAloudService : BaseReadAloudService(), TextToSpeech.OnInitListener
+                     return
+                 }
+             } while (contentList[nowSpeak].matches(AppPattern.notReadAloudRegex))
++            rememberCurrentReadAloudPosition()
+         }
+ 
+         @Deprecated("Deprecated in Java")
+diff --git a/app/src/test/java/io/legado/app/service/ReadAloudProgressTest.kt b/app/src/test/java/io/legado/app/service/ReadAloudProgressTest.kt
+new file mode 100644
+index 000000000..895dffde7
+--- /dev/null
++++ b/app/src/test/java/io/legado/app/service/ReadAloudProgressTest.kt
+@@ -0,0 +1,37 @@
++package io.legado.app.service
++
++import org.junit.Assert.assertEquals
++import org.junit.Test
++
++class ReadAloudProgressTest {
++
++    @Test
++    fun rangeStartKeepsResumePositionInsideCurrentParagraph() {
++        val position = ReadAloudProgress.fromRangeStart(
++            readAloudNumber = 1200,
++            paragraphStartPos = 80,
++            rangeStart = 35,
++            nowSpeak = 4,
++            pageIndex = 7
++        )
++
++        assertEquals(1235, position.readAloudNumber)
++        assertEquals(115, position.paragraphStartPos)
++        assertEquals(4, position.nowSpeak)
++        assertEquals(7, position.pageIndex)
++    }
++
++    @Test
++    fun negativeRangeStartDoesNotMoveResumePositionBackwards() {
++        val position = ReadAloudProgress.fromRangeStart(
++            readAloudNumber = 1200,
++            paragraphStartPos = 80,
++            rangeStart = -20,
++            nowSpeak = 4,
++            pageIndex = 7
++        )
++
++        assertEquals(1200, position.readAloudNumber)
++        assertEquals(80, position.paragraphStartPos)
++    }
++}
+
+base-commit: b7e07a6478c2beeadd8027f0a2f7376ad302b644
+prerequisite-patch-id: 7d6f6c66c7fe93d4b51f117d3487d267bed442e2
+prerequisite-patch-id: 9dc923c43e542f8552b6cb4864fcf6cfdbf80826
+prerequisite-patch-id: 23e9af72b007ded395b0a87369d93357ebaa01b3
+prerequisite-patch-id: b55698415a0e2ebf5f57632a6c6bcddda1b24e1e
+prerequisite-patch-id: aeca489a63d4dacae7c9df67e6d6d8c9efa4a7f8
+prerequisite-patch-id: 02a89a3153bae60bfbe99d8854ffe0da40625aa8
+prerequisite-patch-id: 042d2344fe137be09581ecba10644adb0c1a8184
+prerequisite-patch-id: cae1a8ee149519b39b8f3e012c83d492c2abfb45
+prerequisite-patch-id: 8adbecd77a088a6b6840b0ebeb886468734db5f7
+prerequisite-patch-id: 796b223779c249a7663f969803344b9632405327
+prerequisite-patch-id: 559ad7ff11ec0a211870f03d30dadda5b4080f6d
+prerequisite-patch-id: 0b29fa1e17d992cc3fb6166bacb98ccb94863b9e
+prerequisite-patch-id: 18e3fa502ed65a11ba379073327a6517e9b52ddf
+prerequisite-patch-id: 25783bd3cd463384d52f2afc5172937a2dd89373
+prerequisite-patch-id: 928a7386d0a22ca57f2b30dfd4c7cf8e0b233437
+prerequisite-patch-id: bccebc3a8cb0542743e33881d82cae4661434763
+prerequisite-patch-id: 396283cafb8a7a46794b4fd67c5539b041eb80af
+prerequisite-patch-id: 969e02a2b2f8bd717a897d9449a29331dd05eb0b
+prerequisite-patch-id: d87f38b47b0b62a450ab99b717817fce1ee2f6bf
+prerequisite-patch-id: 79c1c6ce1aa5c244ecef4468b34efcc4b235844e
+prerequisite-patch-id: bbc1a80e06914a47e47b3e2e17c1825898fd71cc
+prerequisite-patch-id: 31731ed885c9647dc56fbfd54e231cc72a70b0c7
+prerequisite-patch-id: cd080eebfb111d747f825746faf0c1c6fc050758
+prerequisite-patch-id: 62e52421fb3b212e9d351facac7a6ac9e0af98ab
+prerequisite-patch-id: cdc6ca0f743c01f7d241ff40045fa3f00380e2ff
+prerequisite-patch-id: c624352b2e926e4cea381e23d91b04edf86669cc
+-- 
+2.33.0.windows.2
+
