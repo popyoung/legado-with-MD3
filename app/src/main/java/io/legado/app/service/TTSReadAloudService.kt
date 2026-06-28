@@ -229,10 +229,20 @@ class TTSReadAloudService : BaseReadAloudService(), TextToSpeech.OnInitListener 
                     && readAloudNumber + start > it.getReadLength(pageIndex + 1)
                 ) {
                     pageIndex++
-                    rememberReadAloudPosition(position.copy(pageIndex = pageIndex))
+                    rememberReadAloudPosition(
+                        readAloudNumber = position.readAloudNumber,
+                        paragraphStartPos = position.paragraphStartPos,
+                        nowSpeak = position.nowSpeak,
+                        pageIndex = pageIndex
+                    )
                     upTtsProgress(readAloudNumber + start)
                 } else {
-                    rememberReadAloudPosition(position)
+                    rememberReadAloudPosition(
+                        readAloudNumber = position.readAloudNumber,
+                        paragraphStartPos = position.paragraphStartPos,
+                        nowSpeak = position.nowSpeak,
+                        pageIndex = position.pageIndex
+                    )
                 }
             }
         }

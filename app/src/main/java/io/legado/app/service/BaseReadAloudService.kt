@@ -346,6 +346,20 @@ abstract class BaseReadAloudService : BaseService(),
 
     protected fun rememberCurrentReadAloudPosition() {
         rememberReadAloudPosition(
+            readAloudNumber = readAloudNumber,
+            paragraphStartPos = paragraphStartPos,
+            nowSpeak = nowSpeak,
+            pageIndex = pageIndex
+        )
+    }
+
+    protected fun rememberReadAloudPosition(
+        readAloudNumber: Int,
+        paragraphStartPos: Int,
+        nowSpeak: Int,
+        pageIndex: Int
+    ) {
+        rememberReadAloudPosition(
             ReadAloudProgress.Position(
                 readAloudNumber = readAloudNumber,
                 paragraphStartPos = paragraphStartPos,
@@ -355,7 +369,7 @@ abstract class BaseReadAloudService : BaseService(),
         )
     }
 
-    protected fun rememberReadAloudPosition(position: ReadAloudProgress.Position) {
+    private fun rememberReadAloudPosition(position: ReadAloudProgress.Position) {
         rememberedReadAloudPosition = position
         updateReadAloudPosition(position.readAloudNumber + 1)
     }
