@@ -178,6 +178,7 @@ class TTSReadAloudService : BaseReadAloudService(), TextToSpeech.OnInitListener 
      * 恢复朗读
      */
     override fun resumeReadAloud() {
+        applyRememberedReadAloudPosition()
         super.resumeReadAloud()
         play()
     }
@@ -200,6 +201,7 @@ class TTSReadAloudService : BaseReadAloudService(), TextToSpeech.OnInitListener 
                 ) {
                     pageIndex++
                 }
+                rememberCurrentReadAloudPosition()
                 upTtsProgress(readAloudNumber + 1)
                 upMediaMetadata(showContent = true)
             }
@@ -216,11 +218,21 @@ class TTSReadAloudService : BaseReadAloudService(), TextToSpeech.OnInitListener 
                 "onRangeStart nowSpeak:$nowSpeak pageIndex:$pageIndex utteranceId:$utteranceId start:$start end:$end frame:$frame"
             LogUtils.d(TAG, msg)
             textChapter?.let {
+                val position = ReadAloudProgress.fromRangeStart(
+                    readAloudNumber = readAloudNumber,
+                    paragraphStartPos = paragraphStartPos,
+                    rangeStart = start,
+                    nowSpeak = nowSpeak,
+                    pageIndex = pageIndex
+                )
                 if (pageIndex + 1 < it.pageSize
                     && readAloudNumber + start > it.getReadLength(pageIndex + 1)
                 ) {
                     pageIndex++
+                    rememberReadAloudPosition(position.copy(pageIndex = pageIndex))
                     upTtsProgress(readAloudNumber + start)
+                } else {
+                    rememberReadAloudPosition(position)
                 }
             }
         }
@@ -244,6 +256,7 @@ class TTSReadAloudService : BaseReadAloudService(), TextToSpeech.OnInitListener 
                     return
                 }
             } while (contentList[nowSpeak].matches(AppPattern.notReadAloudRegex))
+            rememberCurrentReadAloudPosition()
         }
 
         @Deprecated("Deprecated in Java")

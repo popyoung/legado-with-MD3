@@ -140,6 +140,7 @@ abstract class BaseReadAloudService : BaseService(),
     var paragraphStartPos = 0
     var readAloudByPage = false
         private set
+    private var rememberedReadAloudPosition: ReadAloudProgress.Position? = null
 
     private val broadcastReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -277,6 +278,7 @@ abstract class BaseReadAloudService : BaseService(),
             }
             updateReadAloudPosition(readAloudNumber + 1)
             paragraphStartPos = pos
+            rememberCurrentReadAloudPosition()
             launch(Main) {
                 upMediaMetadata()
                 if (play) play() else pageChanged = true
@@ -342,6 +344,30 @@ abstract class BaseReadAloudService : BaseService(),
         postEvent(EventBus.TTS_PROGRESS, progress)
     }
 
+    protected fun rememberCurrentReadAloudPosition() {
+        rememberReadAloudPosition(
+            ReadAloudProgress.Position(
+                readAloudNumber = readAloudNumber,
+                paragraphStartPos = paragraphStartPos,
+                nowSpeak = nowSpeak,
+                pageIndex = pageIndex
+            )
+        )
+    }
+
+    protected fun rememberReadAloudPosition(position: ReadAloudProgress.Position) {
+        rememberedReadAloudPosition = position
+        updateReadAloudPosition(position.readAloudNumber + 1)
+    }
+
+    protected fun applyRememberedReadAloudPosition() {
+        val position = rememberedReadAloudPosition ?: return
+        readAloudNumber = position.readAloudNumber
+        paragraphStartPos = position.paragraphStartPos
+        nowSpeak = position.nowSpeak
+        pageIndex = position.pageIndex
+    }
+
     private fun updateReadAloudPosition(progress: Int) {
         readAloudChapterIndex = textChapter?.chapter?.index ?: -1
         readAloudChapterStart = progress.coerceAtLeast(0)
@@ -370,6 +396,7 @@ abstract class BaseReadAloudService : BaseService(),
                 }
             }
             upTtsProgress(readAloudNumber + 1)
+            rememberCurrentReadAloudPosition()
             upMediaMetadata(showContent = true)
             play()
         } else {
@@ -400,6 +427,7 @@ abstract class BaseReadAloudService : BaseService(),
                 }
             }
             upTtsProgress(readAloudNumber + 1)
+            rememberCurrentReadAloudPosition()
             upMediaMetadata(showContent = true)
             play()
         } else {
@@ -418,6 +446,7 @@ abstract class BaseReadAloudService : BaseService(),
             ReadBook.alignToReadAloudChapter(textChapter, readAloudNumber)
         }
         upTtsProgress(readAloudNumber + 1)
+        rememberCurrentReadAloudPosition()
     }
 
     private fun restartReadAloudFromReadBook(toLastChapterEnd: Boolean = false) {

@@ -40,8 +40,8 @@ jobs:
       - name: Compile app debug Kotlin
         run: ./gradlew --no-configuration-cache :app:compileAppDebugKotlin
 
-      - name: Test read aloud visual behavior
-        run: ./gradlew --no-configuration-cache :app:testAppDebugUnitTest --tests "io.legado.app.ui.book.read.page.ReadAloudParagraphHighlighterTest" --tests "io.legado.app.ui.book.read.page.ReadAloudVisualPositionerTest"
+      - name: Test read aloud behavior
+        run: ./gradlew --no-configuration-cache :app:testAppDebugUnitTest --tests "io.legado.app.ui.book.read.page.ReadAloudParagraphHighlighterTest" --tests "io.legado.app.ui.book.read.page.ReadAloudVisualPositionerTest" --tests "io.legado.app.service.ReadAloudProgressTest"
 
       - name: Build arm64-v8a noR8 APK
         run: ./gradlew --no-configuration-cache -Plegado.splitAbis=arm64-v8a :app:assembleAppNoR8
