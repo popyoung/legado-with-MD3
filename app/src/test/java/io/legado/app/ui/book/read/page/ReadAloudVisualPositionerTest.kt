@@ -248,6 +248,36 @@ class ReadAloudVisualPositionerTest {
     }
 
     @Test
+    fun successfulVisualFollowKeepsExistingVisualPage() {
+        val fallback = ReadAloudVisualPositioner.followFallback(
+            followSucceeded = true,
+            visualPageMatchesTarget = false
+        )
+
+        assertEquals(ReadAloudVisualPositioner.FollowFallback.KeepVisualPage, fallback)
+    }
+
+    @Test
+    fun failedVisualFollowRefreshesWhenVisualPageAlreadyMatchesTarget() {
+        val fallback = ReadAloudVisualPositioner.followFallback(
+            followSucceeded = false,
+            visualPageMatchesTarget = true
+        )
+
+        assertEquals(ReadAloudVisualPositioner.FollowFallback.RefreshCurrentPage, fallback)
+    }
+
+    @Test
+    fun failedVisualFollowJumpsWhenVisualPageDoesNotMatchTarget() {
+        val fallback = ReadAloudVisualPositioner.followFallback(
+            followSucceeded = false,
+            visualPageMatchesTarget = false
+        )
+
+        assertEquals(ReadAloudVisualPositioner.FollowFallback.JumpToTargetPage, fallback)
+    }
+
+    @Test
     fun pausedVisualFollowStillUpdatesHighlightWhenParagraphVisible() {
         val shouldUpdate = ReadAloudVisualPositioner.shouldUpdateHighlightWhenFollowPaused(
             readAloudParagraphVisible = true

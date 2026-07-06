@@ -12,6 +12,12 @@ internal object ReadAloudVisualPositioner {
         val active: Boolean
     )
 
+    enum class FollowFallback {
+        KeepVisualPage,
+        RefreshCurrentPage,
+        JumpToTargetPage
+    }
+
     fun calculateOffset(
         paragraphTop: Float,
         paragraphBottom: Float,
@@ -91,6 +97,18 @@ internal object ReadAloudVisualPositioner {
         readAloudPositionVisible: Boolean
     ): Boolean {
         return visualPositionEnabled && readAloudRunning && !readAloudPositionVisible
+    }
+
+    fun followFallback(
+        followSucceeded: Boolean,
+        visualPageMatchesTarget: Boolean
+    ): FollowFallback {
+        if (followSucceeded) return FollowFallback.KeepVisualPage
+        return if (visualPageMatchesTarget) {
+            FollowFallback.RefreshCurrentPage
+        } else {
+            FollowFallback.JumpToTargetPage
+        }
     }
 
     fun shouldUpdateHighlightWhenFollowPaused(

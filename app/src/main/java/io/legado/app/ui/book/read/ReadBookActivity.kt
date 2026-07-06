@@ -2174,14 +2174,29 @@ class ReadBookActivity : BaseReadBookActivity(),
         }
 
         val initialEffectiveOffset = readAloudNextChapterInitialOffset(textChapter, pageIndex)
-        upContent(resetPageOffset = false) {
-            updateReadAloudParagraphSpan(textChapter, paragraph)
-            if (binding.readView.followReadAloudParagraph(paragraph, initialEffectiveOffset)) {
-                return@upContent
+        updateReadAloudParagraphSpan(textChapter, paragraph)
+        val followSucceeded = binding.readView.followReadAloudParagraph(
+            paragraph = paragraph,
+            initialEffectiveOffset = initialEffectiveOffset
+        )
+        val visualPage = binding.readView.curPage.textPage
+        val visualPageMatchesTarget = visualPage.chapterIndex == textChapter.chapter.index &&
+                visualPage.index == pageIndex
+        when (ReadAloudVisualPositioner.followFallback(followSucceeded, visualPageMatchesTarget)) {
+            ReadAloudVisualPositioner.FollowFallback.KeepVisualPage -> return
+            ReadAloudVisualPositioner.FollowFallback.RefreshCurrentPage -> {
+                upContent(resetPageOffset = false) {
+                    updateReadAloudParagraphSpan(textChapter, paragraph)
+                    if (!binding.readView.followReadAloudParagraph(
+                            paragraph = paragraph,
+                            initialEffectiveOffset = initialEffectiveOffset
+                        )
+                    ) {
+                        binding.readView.curPage.invalidateContentView()
+                    }
+                }
             }
-            if (ReadBook.durPageIndex == pageIndex) {
-                binding.readView.curPage.invalidateContentView()
-            } else {
+            ReadAloudVisualPositioner.FollowFallback.JumpToTargetPage -> {
                 jumpToReadAloudPage(
                     textChapter = textChapter,
                     pageIndex = pageIndex,
