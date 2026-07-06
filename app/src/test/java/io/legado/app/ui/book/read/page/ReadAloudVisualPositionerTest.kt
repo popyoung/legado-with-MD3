@@ -84,6 +84,18 @@ class ReadAloudVisualPositionerTest {
     }
 
     @Test
+    fun paragraphAboveVisibleAreaRestartsAtMiddleAreaTop() {
+        val offset = ReadAloudVisualPositioner.calculateOffset(
+            paragraphTop = 20f,
+            paragraphBottom = 120f,
+            visibleTop = 100f,
+            visibleHeight = 1000f
+        )
+
+        assertEquals(230, offset)
+    }
+
+    @Test
     fun positiveOffsetDrawsPreviousPageBottomAboveCurrentPage() {
         val offset = ReadAloudVisualPositioner.previousPageOffset(
             currentOffset = 150f,
@@ -101,6 +113,63 @@ class ReadAloudVisualPositionerTest {
         )
 
         assertNull(offset)
+    }
+
+    @Test
+    fun relativePageTopUsesContinuousVisualCoordinates() {
+        assertEquals(
+            -900f,
+            ReadAloudVisualPositioner.relativePageTop(
+                currentPageIndex = 3,
+                targetPageIndex = 2,
+                previousPageHeight = 900f,
+                currentPageHeight = 1000f,
+                nextPageHeight = 1100f
+            )
+        )
+        assertEquals(
+            0f,
+            ReadAloudVisualPositioner.relativePageTop(
+                currentPageIndex = 3,
+                targetPageIndex = 3,
+                previousPageHeight = 900f,
+                currentPageHeight = 1000f,
+                nextPageHeight = 1100f
+            )
+        )
+        assertEquals(
+            1000f,
+            ReadAloudVisualPositioner.relativePageTop(
+                currentPageIndex = 3,
+                targetPageIndex = 4,
+                previousPageHeight = 900f,
+                currentPageHeight = 1000f,
+                nextPageHeight = 1100f
+            )
+        )
+        assertEquals(
+            2100f,
+            ReadAloudVisualPositioner.relativePageTop(
+                currentPageIndex = 3,
+                targetPageIndex = 5,
+                previousPageHeight = 900f,
+                currentPageHeight = 1000f,
+                nextPageHeight = 1100f
+            )
+        )
+    }
+
+    @Test
+    fun nonAdjacentPageHasNoContinuousVisualCoordinate() {
+        val pageTop = ReadAloudVisualPositioner.relativePageTop(
+            currentPageIndex = 3,
+            targetPageIndex = 6,
+            previousPageHeight = 900f,
+            currentPageHeight = 1000f,
+            nextPageHeight = 1100f
+        )
+
+        assertNull(pageTop)
     }
 
     @Test

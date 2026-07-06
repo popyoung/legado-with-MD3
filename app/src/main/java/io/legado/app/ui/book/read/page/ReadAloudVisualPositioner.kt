@@ -31,9 +31,29 @@ internal object ReadAloudVisualPositioner {
         val currentTop = paragraphTop + currentOffset
         val currentBottom = paragraphBottom + currentOffset
         return when {
-            currentTop < visibleTop -> (visibleTop - paragraphTop).roundToInt()
+            currentTop < visibleTop -> (safeTop - paragraphTop).roundToInt()
             currentBottom >= safeBottom -> (safeTop - paragraphTop).roundToInt()
             else -> currentOffset.roundToInt()
+        }
+    }
+
+    fun relativePageTop(
+        currentPageIndex: Int,
+        targetPageIndex: Int,
+        previousPageHeight: Float?,
+        currentPageHeight: Float,
+        nextPageHeight: Float?
+    ): Float? {
+        return when (targetPageIndex - currentPageIndex) {
+            -1 -> previousPageHeight?.takeIf { it > 0f }?.let { -it }
+            0 -> 0f
+            1 -> currentPageHeight.takeIf { it > 0f }
+            2 -> {
+                val currentHeight = currentPageHeight.takeIf { it > 0f } ?: return null
+                val nextHeight = nextPageHeight?.takeIf { it > 0f } ?: return null
+                currentHeight + nextHeight
+            }
+            else -> null
         }
     }
 

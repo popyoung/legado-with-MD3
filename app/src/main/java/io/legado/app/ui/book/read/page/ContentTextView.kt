@@ -292,11 +292,11 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
     ): Boolean {
         val firstLine = paragraph.textLines.firstOrNull() ?: return false
         val lastLine = paragraph.textLines.lastOrNull() ?: return false
-        if (firstLine.textPage.index != textPage.index) {
+        if (firstLine.textPage.chapterIndex != textPage.chapterIndex) {
             return false
         }
-        val paragraphTop = lineTopInContinuousPage(firstLine, textPage.index)
-        val paragraphBottom = lineBottomInContinuousPage(lastLine, textPage.index)
+        val paragraphTop = lineTopInVisualStream(firstLine) ?: return false
+        val paragraphBottom = lineBottomInVisualStream(lastLine) ?: return false
         val effectiveOffset = ReadAloudVisualPositioner.calculateOffset(
             paragraphTop = paragraphTop,
             paragraphBottom = paragraphBottom,
@@ -310,21 +310,23 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
         return true
     }
 
-    private fun lineTopInContinuousPage(line: TextLine, firstPageIndex: Int): Float {
-        return pageTopInContinuousPage(line.textPage.index, firstPageIndex) + line.lineTop
+    private fun lineTopInVisualStream(line: TextLine): Float? {
+        return pageTopInVisualStream(line.textPage.index)?.plus(line.lineTop)
     }
 
-    private fun lineBottomInContinuousPage(line: TextLine, firstPageIndex: Int): Float {
-        return pageTopInContinuousPage(line.textPage.index, firstPageIndex) + line.lineBottom
+    private fun lineBottomInVisualStream(line: TextLine): Float? {
+        return pageTopInVisualStream(line.textPage.index)?.plus(line.lineBottom)
     }
 
-    private fun pageTopInContinuousPage(pageIndex: Int, firstPageIndex: Int): Float {
+    private fun pageTopInVisualStream(pageIndex: Int): Float? {
         val textChapter = textPage.getTextChapter()
-        var top = 0f
-        for (index in firstPageIndex until pageIndex) {
-            top += textChapter.getPage(index)?.height ?: 0f
-        }
-        return top
+        return ReadAloudVisualPositioner.relativePageTop(
+            currentPageIndex = textPage.index,
+            targetPageIndex = pageIndex,
+            previousPageHeight = textChapter.getPage(textPage.index - 1)?.height,
+            currentPageHeight = textPage.height,
+            nextPageHeight = textChapter.getPage(textPage.index + 1)?.height
+        )
     }
 
     private fun drawContinuousPages(): Boolean {
