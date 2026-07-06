@@ -57,6 +57,7 @@ import io.legado.app.lib.dialogs.SelectItem
 import io.legado.app.lib.dialogs.alert
 import io.legado.app.lib.dialogs.selector
 import io.legado.app.model.ReadAloud
+import io.legado.app.model.ReadAloudPageChangePolicy
 import io.legado.app.model.ReadBook
 import io.legado.app.model.SourceCallBack
 import io.legado.app.model.analyzeRule.AnalyzeRule
@@ -1208,7 +1209,9 @@ class ReadBookActivity : BaseReadBookActivity(),
             readAloudVisualFollowPaused = true
             binding.readView.curPage.clearReadAloudVisualFollow()
         }
-        binding.readView.onPageChange()
+        if (ReadAloudPageChangePolicy.shouldRefreshReadViewOnPageChanged(fromReadAloud)) {
+            binding.readView.onPageChange()
+        }
         handler.post {
             upSeekBarProgress()
         }

@@ -11,4 +11,16 @@ internal object ReadAloudPageChangePolicy {
     ): Boolean {
         return false
     }
+
+    fun shouldRefreshReadViewOnPageChanged(
+        fromReadAloud: Boolean
+    ): Boolean {
+        return !fromReadAloud
+    }
+
+    fun shouldRefreshContentDuringChapterMove(
+        fromReadAloud: Boolean
+    ): Boolean {
+        return !fromReadAloud
+    }
 }

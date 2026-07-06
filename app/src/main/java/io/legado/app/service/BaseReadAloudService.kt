@@ -41,6 +41,7 @@ import io.legado.app.help.glide.ImageLoader
 import io.legado.app.lib.permission.Permissions
 import io.legado.app.lib.permission.PermissionsCompat
 import io.legado.app.model.ReadAloud
+import io.legado.app.model.ReadAloudPageChangePolicy
 import io.legado.app.model.ReadBook
 import io.legado.app.receiver.MediaButtonReceiver
 import io.legado.app.ui.book.read.ReadBookActivity
@@ -802,7 +803,12 @@ abstract class BaseReadAloudService : BaseService(),
             resumeReadAloudInternal()
             val moved = ReadBook.withReadAloudPageChangeAwait {
                 alignReadBookToReadAloudChapter(preloadAdjacent = false)
-                ReadBook.moveToNextChapterAwait(true, upContentInPlace = false)
+                ReadBook.moveToNextChapterAwait(
+                    upContent = ReadAloudPageChangePolicy.shouldRefreshContentDuringChapterMove(
+                        fromReadAloud = true
+                    ),
+                    upContentInPlace = false
+                )
             }
             if (moved) {
                 restartReadAloudFromReadBook()
@@ -818,7 +824,13 @@ abstract class BaseReadAloudService : BaseService(),
             resumeReadAloudInternal()
             val moved = ReadBook.withReadAloudPageChangeAwait {
                 alignReadBookToReadAloudChapter(preloadAdjacent = false)
-                ReadBook.moveToPrevChapterAwait(true, toLast = toLast, upContentInPlace = false)
+                ReadBook.moveToPrevChapterAwait(
+                    upContent = ReadAloudPageChangePolicy.shouldRefreshContentDuringChapterMove(
+                        fromReadAloud = true
+                    ),
+                    toLast = toLast,
+                    upContentInPlace = false
+                )
             }
             if (moved) {
                 restartReadAloudFromReadBook(toLastChapterEnd = toLast)
