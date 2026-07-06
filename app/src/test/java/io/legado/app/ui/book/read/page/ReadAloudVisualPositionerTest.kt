@@ -104,6 +104,26 @@ class ReadAloudVisualPositionerTest {
     }
 
     @Test
+    fun nextChapterOffsetContinuesAfterPreviousPage() {
+        val offset = ReadAloudVisualPositioner.nextChapterOffset(
+            previousEffectiveOffset = -420f,
+            previousPageHeight = 1000f
+        )
+
+        assertEquals(580, offset)
+    }
+
+    @Test
+    fun invalidPreviousPageHeightDoesNotContinueToNextChapter() {
+        val offset = ReadAloudVisualPositioner.nextChapterOffset(
+            previousEffectiveOffset = -420f,
+            previousPageHeight = 0f
+        )
+
+        assertNull(offset)
+    }
+
+    @Test
     fun activeFollowOffsetIsAddedToScrollOffsetForDrawingOnly() {
         val offset = ReadAloudVisualPositioner.contentOffset(
             pageOffset = -300f,

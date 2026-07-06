@@ -449,8 +449,15 @@ class PageView(context: Context) : FrameLayout(context) {
         binding.contentTextView.clearReadAloudVisualFollow()
     }
 
-    fun followReadAloudParagraph(paragraph: TextParagraph): Boolean {
-        return binding.contentTextView.followReadAloudParagraph(paragraph)
+    fun readAloudNextChapterOffset(): Int? {
+        return binding.contentTextView.readAloudNextChapterOffset()
+    }
+
+    fun followReadAloudParagraph(
+        paragraph: TextParagraph,
+        initialEffectiveOffset: Int? = null
+    ): Boolean {
+        return binding.contentTextView.followReadAloudParagraph(paragraph, initialEffectiveOffset)
     }
 
     /**

@@ -280,6 +280,8 @@ class ReadBookActivity : BaseReadBookActivity(),
     private var pageChanged = false
     private var readAloudVisualFollowPaused = false
     private var restoringReadAloudVisualPosition = false
+    private var readAloudRestoreSerial = 0
+    private var readAloudRestoreLoadingSerial = 0
     private var readAloudHighlightedPageIndices = emptySet<Int>()
     private val handler by lazy { buildMainHandler() }
     private val screenOffRunnable by lazy { Runnable { keepScreenOn(false) } }
@@ -1578,37 +1580,86 @@ class ReadBookActivity : BaseReadBookActivity(),
         val chapterIndex = BaseReadAloudService.readAloudChapterIndex
         if (chapterIndex !in 0 until ReadBook.simulatedChapterSize) return false
         val chapterStart = BaseReadAloudService.readAloudChapterStart.coerceAtLeast(0)
+        val restoreSerial = ++readAloudRestoreSerial
+        readAloudRestoreLoadingSerial = restoreSerial
         readAloudVisualFollowPaused = false
         if (ReadBook.durChapterIndex == chapterIndex) {
+            restoringReadAloudVisualPosition = false
             val textChapter = ReadBook.curTextChapter ?: return false
             if (!textChapter.isCompleted) return false
-            restoreReadAloudVisualInChapter(textChapter, chapterStart)
+            restoreReadAloudVisualInChapter(
+                textChapter = textChapter,
+                chapterStart = chapterStart,
+                restoreSerial = restoreSerial,
+                chapterIndex = chapterIndex
+            )
             return true
         }
         restoringReadAloudVisualPosition = true
         ReadBook.openChapter(chapterIndex, chapterStart, true) {
-            ReadBook.curTextChapter?.takeIf { it.isCompleted }?.let { textChapter ->
-                restoreReadAloudVisualInChapter(textChapter, chapterStart)
+            if (!isCurrentReadAloudRestore(restoreSerial, chapterIndex, chapterStart)) {
+                clearReadAloudRestoring(restoreSerial)
+                return@openChapter
             }
+            ReadBook.curTextChapter?.takeIf { it.isCompleted }?.let { textChapter ->
+                restoreReadAloudVisualInChapter(
+                    textChapter = textChapter,
+                    chapterStart = chapterStart,
+                    restoreSerial = restoreSerial,
+                    chapterIndex = chapterIndex
+                )
+            }
+            clearReadAloudRestoring(restoreSerial)
+        }
+        handler.postDelayed({
+            clearReadAloudRestoring(restoreSerial)
+        }, 30000)
+        return true
+    }
+
+    private fun clearReadAloudRestoring(restoreSerial: Int) {
+        if (restoreSerial == readAloudRestoreLoadingSerial) {
             restoringReadAloudVisualPosition = false
         }
-        handler.postDelayed({ restoringReadAloudVisualPosition = false }, 30000)
-        return true
+    }
+
+    private fun isCurrentReadAloudRestore(
+        restoreSerial: Int,
+        chapterIndex: Int,
+        chapterStart: Int
+    ): Boolean {
+        return restoreSerial == readAloudRestoreSerial &&
+                BaseReadAloudService.readAloudChapterIndex == chapterIndex &&
+                BaseReadAloudService.readAloudChapterStart.coerceAtLeast(0) == chapterStart
     }
 
     private fun restoreReadAloudVisualInChapter(
         textChapter: TextChapter,
-        chapterStart: Int
+        chapterStart: Int,
+        restoreSerial: Int,
+        chapterIndex: Int
     ) {
+        if (!isCurrentReadAloudRestore(restoreSerial, chapterIndex, chapterStart)) return
         val paragraph = findReadAloudParagraph(textChapter, chapterStart)
         val pageIndex = paragraph?.firstLine?.textPage?.index
             ?: textChapter.getPageIndexByCharIndex(chapterStart)
         if (pageIndex < 0) return
         ReadBook.withReadAloudPageChange {
             ReadBook.skipToPage(pageIndex) {
+                if (!isCurrentReadAloudRestore(restoreSerial, chapterIndex, chapterStart)) {
+                    return@skipToPage
+                }
                 paragraph?.let {
                     updateReadAloudParagraphSpan(textChapter, it)
                     binding.readView.post {
+                        if (!isCurrentReadAloudRestore(
+                                restoreSerial,
+                                chapterIndex,
+                                chapterStart
+                            )
+                        ) {
+                            return@post
+                        }
                         binding.readView.followReadAloudParagraph(it)
                     }
                 }
@@ -2092,11 +2143,12 @@ class ReadBookActivity : BaseReadBookActivity(),
             return
         }
 
+        val initialEffectiveOffset = readAloudNextChapterInitialOffset(textChapter, pageIndex)
         if (ReadBook.durPageIndex == pageIndex) {
             upContent(resetPageOffset = false) {
                 updateReadAloudParagraphSpan(textChapter, paragraph)
                 binding.readView.post {
-                    binding.readView.followReadAloudParagraph(paragraph)
+                    binding.readView.followReadAloudParagraph(paragraph, initialEffectiveOffset)
                 }
             }
         } else {
@@ -2104,11 +2156,22 @@ class ReadBookActivity : BaseReadBookActivity(),
                 ReadBook.skipToPage(pageIndex) {
                     updateReadAloudParagraphSpan(textChapter, paragraph)
                     binding.readView.post {
-                        binding.readView.followReadAloudParagraph(paragraph)
+                        binding.readView.followReadAloudParagraph(paragraph, initialEffectiveOffset)
                     }
                 }
             }
         }
+    }
+
+    private fun readAloudNextChapterInitialOffset(
+        textChapter: TextChapter,
+        pageIndex: Int
+    ): Int? {
+        if (pageIndex != 0) return null
+        val visualPage = binding.readView.curPage.textPage
+        if (visualPage.chapterIndex != textChapter.chapter.index - 1) return null
+        if (visualPage.index != visualPage.pageSize - 1) return null
+        return binding.readView.readAloudNextChapterOffset()
     }
 
     private fun readAloudParagraphVisibleOnScreen(

@@ -279,7 +279,17 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
         readAloudFollowActive = state.active
     }
 
-    fun followReadAloudParagraph(paragraph: TextParagraph): Boolean {
+    fun readAloudNextChapterOffset(): Int? {
+        return ReadAloudVisualPositioner.nextChapterOffset(
+            previousEffectiveOffset = contentOffset(0),
+            previousPageHeight = textPage.height
+        )
+    }
+
+    fun followReadAloudParagraph(
+        paragraph: TextParagraph,
+        initialEffectiveOffset: Int? = null
+    ): Boolean {
         val firstLine = paragraph.textLines.firstOrNull() ?: return false
         val lastLine = paragraph.textLines.lastOrNull() ?: return false
         if (firstLine.textPage.index != textPage.index) {
@@ -292,7 +302,7 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
             paragraphBottom = paragraphBottom,
             visibleTop = ChapterProvider.paddingTop.toFloat(),
             visibleHeight = ChapterProvider.visibleHeight.toFloat(),
-            currentOffset = contentOffset(0)
+            currentOffset = initialEffectiveOffset?.toFloat() ?: contentOffset(0)
         )
         readAloudPageOffset = effectiveOffset - pageOffset
         readAloudFollowActive = true

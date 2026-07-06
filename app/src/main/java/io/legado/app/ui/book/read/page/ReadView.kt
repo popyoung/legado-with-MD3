@@ -699,8 +699,15 @@ class ReadView(context: Context, attrs: AttributeSet) :
         return curPage.containsVisibleChapterPosition(chapterIndex, chapterPosition)
     }
 
-    fun followReadAloudParagraph(paragraph: TextParagraph): Boolean {
-        return curPage.followReadAloudParagraph(paragraph)
+    fun readAloudNextChapterOffset(): Int? {
+        return curPage.readAloudNextChapterOffset()
+    }
+
+    fun followReadAloudParagraph(
+        paragraph: TextParagraph,
+        initialEffectiveOffset: Int? = null
+    ): Boolean {
+        return curPage.followReadAloudParagraph(paragraph, initialEffectiveOffset)
     }
 
     fun invalidateTextPage() {
