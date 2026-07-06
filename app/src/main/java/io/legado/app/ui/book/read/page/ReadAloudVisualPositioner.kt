@@ -87,6 +87,12 @@ internal object ReadAloudVisualPositioner {
         return readAloudPaused
     }
 
+    fun shouldRestoreWithoutPageJump(
+        readAloudParagraphVisible: Boolean
+    ): Boolean {
+        return readAloudParagraphVisible
+    }
+
     fun clearFollowState(state: FollowState): FollowState {
         return state.copy(readAloudOffset = 0, active = false)
     }

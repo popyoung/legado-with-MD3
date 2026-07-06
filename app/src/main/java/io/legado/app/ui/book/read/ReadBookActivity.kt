@@ -1644,6 +1644,25 @@ class ReadBookActivity : BaseReadBookActivity(),
         val pageIndex = paragraph?.firstLine?.textPage?.index
             ?: textChapter.getPageIndexByCharIndex(chapterStart)
         if (pageIndex < 0) return
+        val readAloudParagraphVisible = paragraph?.let {
+            readAloudParagraphVisibleOnScreen(textChapter, it)
+        } == true
+        if (paragraph != null && ReadAloudVisualPositioner.shouldRestoreWithoutPageJump(
+                readAloudParagraphVisible = readAloudParagraphVisible
+            )
+        ) {
+            upContent(resetPageOffset = false) {
+                if (!isCurrentReadAloudRestore(restoreSerial, chapterIndex, chapterStart)) {
+                    return@upContent
+                }
+                updateReadAloudParagraphSpan(textChapter, paragraph)
+                if (!binding.readView.followReadAloudParagraph(paragraph)) {
+                    binding.readView.curPage.invalidateContentView()
+                }
+            }
+            return
+        }
+        val initialEffectiveOffset = readAloudNextChapterInitialOffset(textChapter, pageIndex)
         ReadBook.withReadAloudPageChange {
             ReadBook.skipToPage(pageIndex) {
                 if (!isCurrentReadAloudRestore(restoreSerial, chapterIndex, chapterStart)) {
@@ -1651,17 +1670,15 @@ class ReadBookActivity : BaseReadBookActivity(),
                 }
                 paragraph?.let {
                     updateReadAloudParagraphSpan(textChapter, it)
-                    binding.readView.post {
-                        if (!isCurrentReadAloudRestore(
-                                restoreSerial,
-                                chapterIndex,
-                                chapterStart
-                            )
-                        ) {
-                            return@post
-                        }
-                        binding.readView.followReadAloudParagraph(it)
+                    if (!isCurrentReadAloudRestore(
+                            restoreSerial,
+                            chapterIndex,
+                            chapterStart
+                        )
+                    ) {
+                        return@skipToPage
                     }
+                    binding.readView.followReadAloudParagraph(it, initialEffectiveOffset)
                 }
             }
         }
@@ -2147,17 +2164,13 @@ class ReadBookActivity : BaseReadBookActivity(),
         if (ReadBook.durPageIndex == pageIndex) {
             upContent(resetPageOffset = false) {
                 updateReadAloudParagraphSpan(textChapter, paragraph)
-                binding.readView.post {
-                    binding.readView.followReadAloudParagraph(paragraph, initialEffectiveOffset)
-                }
+                binding.readView.followReadAloudParagraph(paragraph, initialEffectiveOffset)
             }
         } else {
             ReadBook.withReadAloudPageChange {
                 ReadBook.skipToPage(pageIndex) {
                     updateReadAloudParagraphSpan(textChapter, paragraph)
-                    binding.readView.post {
-                        binding.readView.followReadAloudParagraph(paragraph, initialEffectiveOffset)
-                    }
+                    binding.readView.followReadAloudParagraph(paragraph, initialEffectiveOffset)
                 }
             }
         }

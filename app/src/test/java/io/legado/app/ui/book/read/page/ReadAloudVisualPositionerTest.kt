@@ -217,6 +217,24 @@ class ReadAloudVisualPositionerTest {
     }
 
     @Test
+    fun visibleReadAloudParagraphRestoresWithoutPageJump() {
+        val shouldReuseVisiblePage = ReadAloudVisualPositioner.shouldRestoreWithoutPageJump(
+            readAloudParagraphVisible = true
+        )
+
+        assertTrue(shouldReuseVisiblePage)
+    }
+
+    @Test
+    fun hiddenReadAloudParagraphRequiresPageJumpOnRestore() {
+        val shouldReuseVisiblePage = ReadAloudVisualPositioner.shouldRestoreWithoutPageJump(
+            readAloudParagraphVisible = false
+        )
+
+        assertFalse(shouldReuseVisiblePage)
+    }
+
+    @Test
     fun clearFollowStateKeepsScrollOffset() {
         val state = ReadAloudVisualPositioner.clearFollowState(
             ReadAloudVisualPositioner.FollowState(
