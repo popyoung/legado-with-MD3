@@ -28,6 +28,9 @@ internal object ReadAloudVisualPositioner {
         if (paragraphHeight > safeBottom - safeTop) {
             return (visibleTop - paragraphTop).roundToInt()
         }
+        if (paragraphBottom > safeBottom) {
+            return (safeTop - paragraphTop).roundToInt()
+        }
         val currentTop = paragraphTop + currentOffset
         val currentBottom = paragraphBottom + currentOffset
         return when {

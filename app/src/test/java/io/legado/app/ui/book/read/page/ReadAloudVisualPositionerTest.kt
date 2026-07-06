@@ -46,7 +46,7 @@ class ReadAloudVisualPositionerTest {
     }
 
     @Test
-    fun bottomParagraphMovesOnlyToMiddleAreaBottom() {
+    fun bottomOverflowParagraphRestartsAtMiddleAreaTop() {
         val offset = ReadAloudVisualPositioner.calculateOffset(
             paragraphTop = 900f,
             paragraphBottom = 1100f,
@@ -54,7 +54,20 @@ class ReadAloudVisualPositionerTest {
             visibleHeight = 1000f
         )
 
-        assertEquals(-150, offset)
+        assertEquals(-650, offset)
+    }
+
+    @Test
+    fun previousFollowOffsetDoesNotKeepNextParagraphNearBottom() {
+        val offset = ReadAloudVisualPositioner.calculateOffset(
+            paragraphTop = 960f,
+            paragraphBottom = 1000f,
+            visibleTop = 100f,
+            visibleHeight = 1000f,
+            currentOffset = -50f
+        )
+
+        assertEquals(-710, offset)
     }
 
     @Test
