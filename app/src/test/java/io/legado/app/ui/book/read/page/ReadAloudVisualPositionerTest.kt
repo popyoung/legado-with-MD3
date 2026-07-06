@@ -34,7 +34,7 @@ class ReadAloudVisualPositionerTest {
     }
 
     @Test
-    fun topParagraphMovesOnlyToMiddleAreaTop() {
+    fun visibleTopParagraphKeepsCurrentOffset() {
         val offset = ReadAloudVisualPositioner.calculateOffset(
             paragraphTop = 100f,
             paragraphBottom = 300f,
@@ -42,7 +42,20 @@ class ReadAloudVisualPositionerTest {
             visibleHeight = 1000f
         )
 
-        assertEquals(150, offset)
+        assertEquals(0, offset)
+    }
+
+    @Test
+    fun naturalBottomOverflowKeepsCurrentOffsetWhenParagraphIsCurrentlySafe() {
+        val offset = ReadAloudVisualPositioner.calculateOffset(
+            paragraphTop = 900f,
+            paragraphBottom = 1000f,
+            visibleTop = 100f,
+            visibleHeight = 1000f,
+            currentOffset = -200f
+        )
+
+        assertEquals(-200, offset)
     }
 
     @Test
@@ -194,6 +207,21 @@ class ReadAloudVisualPositionerTest {
         )
 
         assertEquals(-420, state.pageOffset)
+        assertEquals(0, state.readAloudOffset)
+        assertEquals(false, state.active)
+    }
+
+    @Test
+    fun userScrollInterruptionKeepsVisualPosition() {
+        val state = ReadAloudVisualPositioner.interruptFollowByUserScroll(
+            ReadAloudVisualPositioner.FollowState(
+                pageOffset = -420,
+                readAloudOffset = 120,
+                active = true
+            )
+        )
+
+        assertEquals(-300, state.pageOffset)
         assertEquals(0, state.readAloudOffset)
         assertEquals(false, state.active)
     }

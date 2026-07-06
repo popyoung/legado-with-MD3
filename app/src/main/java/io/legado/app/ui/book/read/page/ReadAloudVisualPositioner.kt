@@ -28,15 +28,12 @@ internal object ReadAloudVisualPositioner {
         if (paragraphHeight > safeBottom - safeTop) {
             return (visibleTop - paragraphTop).roundToInt()
         }
-        if (paragraphBottom > safeBottom) {
-            return (safeTop - paragraphTop).roundToInt()
-        }
         val currentTop = paragraphTop + currentOffset
         val currentBottom = paragraphBottom + currentOffset
         return when {
-            currentTop >= safeTop && currentBottom <= safeBottom -> currentOffset.roundToInt()
-            currentTop < safeTop -> (safeTop - paragraphTop).roundToInt()
-            else -> (safeBottom - paragraphBottom).roundToInt()
+            currentTop < visibleTop -> (visibleTop - paragraphTop).roundToInt()
+            currentBottom >= safeBottom -> (safeTop - paragraphTop).roundToInt()
+            else -> currentOffset.roundToInt()
         }
     }
 
@@ -82,6 +79,14 @@ internal object ReadAloudVisualPositioner {
 
     fun clearFollowState(state: FollowState): FollowState {
         return state.copy(readAloudOffset = 0, active = false)
+    }
+
+    fun interruptFollowByUserScroll(state: FollowState): FollowState {
+        return state.copy(
+            pageOffset = state.pageOffset + state.readAloudOffset,
+            readAloudOffset = 0,
+            active = false
+        )
     }
 
     fun resetPageState(state: FollowState): FollowState {

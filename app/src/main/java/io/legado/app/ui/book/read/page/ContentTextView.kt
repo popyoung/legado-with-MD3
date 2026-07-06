@@ -323,7 +323,9 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
 
     private fun resetReadAloudFollowByUserScroll() {
         if (!readAloudFollowActive && readAloudPageOffset == 0) return
-        clearReadAloudVisualFollow()
+        applyReadAloudFollowState(
+            ReadAloudVisualPositioner.interruptFollowByUserScroll(readAloudFollowState())
+        )
         callBack.onReadAloudVisualFollowInterrupted()
     }
 
