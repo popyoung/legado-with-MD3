@@ -406,10 +406,33 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
 
     private fun resetReadAloudFollowByUserScroll() {
         if (!readAloudFollowActive && readAloudPageOffset == 0) return
-        applyReadAloudFollowState(
-            ReadAloudVisualPositioner.interruptFollowByUserScroll(readAloudFollowState())
+        val textChapter = textPage.getTextChapter()
+        val previousPage = textChapter.getPage(textPage.index - 1)
+        val nextPage = textChapter.getPage(textPage.index + 1)
+        val nextPlusPage = textChapter.getPage(textPage.index + 2)
+        val interruption = ReadAloudVisualPositioner.interruptFollowByUserScroll(
+            state = readAloudFollowState(),
+            previousPageHeight = previousPage?.height,
+            currentPageHeight = textPage.height,
+            nextPageHeight = nextPage?.height,
+            nextPlusPageHeight = nextPlusPage?.height
         )
-        ReadAloudVisualTrace.record("interruptFollowByScroll", readAloudVisualDebugState())
+        when (interruption.pageShift) {
+            -1 -> previousPage
+            1 -> nextPage
+            2 -> nextPlusPage
+            else -> null
+        }?.let {
+            ReadBook.withReadAloudPageChange {
+                ReadBook.setPageIndex(it.index)
+            }
+            textPage = it
+        }
+        applyReadAloudFollowState(interruption.state)
+        ReadAloudVisualTrace.record(
+            "interruptFollowByScroll",
+            "pageShift=${interruption.pageShift} ${readAloudVisualDebugState()}"
+        )
     }
 
     fun setReadAloudVisualCenterIndicator(show: Boolean): Boolean {

@@ -403,12 +403,7 @@ abstract class BaseReadAloudService : BaseService(),
                     if (!paragraphs[nowSpeak].isParagraphEnd) readAloudNumber++
                 }
                 alignReadBookToReadAloudChapter()
-                if (readAloudNumber < it.getReadLength(pageIndex)) {
-                    pageIndex--
-                    ReadBook.withReadAloudPageChange {
-                        ReadBook.skipToPage(pageIndex)
-                    }
-                }
+                syncReadBookPageToReadAloudPosition(it)
             }
             upTtsProgress(readAloudNumber + 1)
             rememberCurrentReadAloudPosition()
@@ -432,14 +427,7 @@ abstract class BaseReadAloudService : BaseService(),
                     if (!paragraphs[nowSpeak].isParagraphEnd) readAloudNumber--
                 }
                 alignReadBookToReadAloudChapter()
-                if (pageIndex + 1 < it.pageSize
-                    && readAloudNumber >= it.getReadLength(pageIndex + 1)
-                ) {
-                    pageIndex++
-                    ReadBook.withReadAloudPageChange {
-                        ReadBook.skipToPage(pageIndex)
-                    }
-                }
+                syncReadBookPageToReadAloudPosition(it)
             }
             upTtsProgress(readAloudNumber + 1)
             rememberCurrentReadAloudPosition()
@@ -453,6 +441,17 @@ abstract class BaseReadAloudService : BaseService(),
     private fun alignReadBookToReadAloudChapter(preloadAdjacent: Boolean = true) {
         val textChapter = textChapter ?: return
         ReadBook.alignToReadAloudChapter(textChapter, readAloudNumber, preloadAdjacent)
+    }
+
+    private fun syncReadBookPageToReadAloudPosition(textChapter: TextChapter) {
+        val targetPageIndex = textChapter.getPageIndexByCharIndex(readAloudNumber)
+        if (targetPageIndex < 0 || targetPageIndex == pageIndex) {
+            return
+        }
+        pageIndex = targetPageIndex
+        ReadBook.withReadAloudPageChange {
+            ReadBook.skipToPage(pageIndex, chapterPos = readAloudNumber)
+        }
     }
 
     private fun restoreReadBookToReadAloudPosition() {

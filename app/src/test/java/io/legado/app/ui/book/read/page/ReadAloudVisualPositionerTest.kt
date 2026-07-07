@@ -67,20 +67,20 @@ class ReadAloudVisualPositionerTest {
             visibleHeight = 1000f
         )
 
-        assertEquals(-650, offset)
+        assertEquals(-700, offset)
     }
 
     @Test
     fun previousFollowOffsetDoesNotKeepNextParagraphNearBottom() {
         val offset = ReadAloudVisualPositioner.calculateOffset(
             paragraphTop = 960f,
-            paragraphBottom = 1000f,
+            paragraphBottom = 1100f,
             visibleTop = 100f,
             visibleHeight = 1000f,
             currentOffset = -50f
         )
 
-        assertEquals(-710, offset)
+        assertEquals(-760, offset)
     }
 
     @Test
@@ -92,7 +92,7 @@ class ReadAloudVisualPositionerTest {
             visibleHeight = 1000f
         )
 
-        assertEquals(230, offset)
+        assertEquals(180, offset)
     }
 
     @Test
@@ -201,7 +201,7 @@ class ReadAloudVisualPositionerTest {
             visibleHeight = 3032f
         )
 
-        assertEquals(434, offset)
+        assertEquals(282, offset)
     }
 
     @Test
@@ -471,6 +471,46 @@ class ReadAloudVisualPositionerTest {
         assertEquals(-300, state.pageOffset)
         assertEquals(0, state.readAloudOffset)
         assertEquals(false, state.active)
+    }
+
+    @Test
+    fun userScrollInterruptionMaterializesNextVisualPageBeforeClearingFollow() {
+        val interruption = ReadAloudVisualPositioner.interruptFollowByUserScroll(
+            state = ReadAloudVisualPositioner.FollowState(
+                pageOffset = -1663,
+                readAloudOffset = -2340,
+                active = true
+            ),
+            previousPageHeight = 3051f,
+            currentPageHeight = 3051f,
+            nextPageHeight = 3032f,
+            nextPlusPageHeight = 3032f
+        )
+
+        assertEquals(1, interruption.pageShift)
+        assertEquals(-952, interruption.state.pageOffset)
+        assertEquals(0, interruption.state.readAloudOffset)
+        assertEquals(false, interruption.state.active)
+    }
+
+    @Test
+    fun userScrollInterruptionMaterializesPreviousVisualPageBeforeClearingFollow() {
+        val interruption = ReadAloudVisualPositioner.interruptFollowByUserScroll(
+            state = ReadAloudVisualPositioner.FollowState(
+                pageOffset = 0,
+                readAloudOffset = 452,
+                active = true
+            ),
+            previousPageHeight = 3051f,
+            currentPageHeight = 3032f,
+            nextPageHeight = 3032f,
+            nextPlusPageHeight = null
+        )
+
+        assertEquals(-1, interruption.pageShift)
+        assertEquals(-2599, interruption.state.pageOffset)
+        assertEquals(0, interruption.state.readAloudOffset)
+        assertEquals(false, interruption.state.active)
     }
 
     @Test

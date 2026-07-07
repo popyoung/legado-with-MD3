@@ -557,8 +557,14 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
         }
     }
 
-    fun skipToPage(index: Int, success: (() -> Unit)? = null) {
-        durChapterPos = curTextChapter?.getReadLength(index) ?: index
+    fun skipToPage(
+        index: Int,
+        chapterPos: Int? = null,
+        success: (() -> Unit)? = null
+    ) {
+        durChapterPos = chapterPos?.coerceAtLeast(0)
+            ?: curTextChapter?.getReadLength(index)
+            ?: index
         callBack?.upContent {
             success?.invoke()
         }

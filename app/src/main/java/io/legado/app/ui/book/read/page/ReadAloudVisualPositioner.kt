@@ -4,12 +4,17 @@ import kotlin.math.roundToInt
 
 internal object ReadAloudVisualPositioner {
 
-    private const val SAFE_EDGE_RATIO = 0.15f
+    private const val SAFE_EDGE_RATIO = 0.10f
 
     data class FollowState(
         val pageOffset: Int,
         val readAloudOffset: Int,
         val active: Boolean
+    )
+
+    data class InterruptedFollowState(
+        val pageShift: Int,
+        val state: FollowState
     )
 
     enum class FollowFallback {
@@ -185,6 +190,46 @@ internal object ReadAloudVisualPositioner {
             pageOffset = state.pageOffset + state.readAloudOffset,
             readAloudOffset = 0,
             active = false
+        )
+    }
+
+    fun interruptFollowByUserScroll(
+        state: FollowState,
+        previousPageHeight: Float?,
+        currentPageHeight: Float,
+        nextPageHeight: Float?,
+        nextPlusPageHeight: Float?
+    ): InterruptedFollowState {
+        var pageShift = 0
+        var pageOffset = contentOffset(
+            pageOffset = state.pageOffset.toFloat(),
+            readAloudOffset = state.readAloudOffset.toFloat(),
+            readAloudActive = state.active
+        )
+        if (pageOffset > 0f && previousPageHeight != null && previousPageHeight > 0f) {
+            pageOffset -= previousPageHeight
+            pageShift = -1
+        } else if (currentPageHeight > 0f) {
+            if (pageOffset < -currentPageHeight && nextPageHeight != null && nextPageHeight > 0f) {
+                pageOffset += currentPageHeight
+                pageShift = 1
+                if (
+                    pageOffset < -nextPageHeight &&
+                    nextPlusPageHeight != null &&
+                    nextPlusPageHeight > 0f
+                ) {
+                    pageOffset += nextPageHeight
+                    pageShift = 2
+                }
+            }
+        }
+        return InterruptedFollowState(
+            pageShift = pageShift,
+            state = state.copy(
+                pageOffset = pageOffset.roundToInt(),
+                readAloudOffset = 0,
+                active = false
+            )
         )
     }
 
