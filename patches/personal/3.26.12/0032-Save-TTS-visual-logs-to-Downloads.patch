@@ -1,0 +1,146 @@
+From d7f6f1f864facb94142fc956c9a99b952eec9609 Mon Sep 17 00:00:00 2001
+From: popyoung <popyoung@163.com>
+Date: Tue, 7 Jul 2026 17:55:01 +0800
+Subject: [PATCH] Save TTS visual logs to Downloads
+
+---
+ .../book/read/config/ReadAloudConfigDialog.kt |  7 ++-
+ .../ui/book/read/page/ReadAloudVisualTrace.kt | 63 +++++++++++++++++--
+ app/src/main/res/values/strings.xml           |  2 +-
+ 3 files changed, 63 insertions(+), 9 deletions(-)
+
+diff --git a/app/src/main/java/io/legado/app/ui/book/read/config/ReadAloudConfigDialog.kt b/app/src/main/java/io/legado/app/ui/book/read/config/ReadAloudConfigDialog.kt
+index 5610e514d..30d7fc410 100644
+--- a/app/src/main/java/io/legado/app/ui/book/read/config/ReadAloudConfigDialog.kt
++++ b/app/src/main/java/io/legado/app/ui/book/read/config/ReadAloudConfigDialog.kt
+@@ -146,8 +146,11 @@ class ReadAloudConfigDialog : BasePrefDialogFragment() {
+                 PreferKey.ttsEngine -> showDialogFragment(SpeakEngineDialog())
+                 "sysTtsConfig" -> IntentHelp.openTTSSetting()
+                 "saveReadAloudVisualLog" -> {
+-                    val file = ReadAloudVisualTrace.export(requireContext())
+-                    requireContext().toastOnUi("已保存朗读定位日志: ${file.absolutePath}", Toast.LENGTH_LONG)
++                    val result = ReadAloudVisualTrace.export(requireContext())
++                    requireContext().toastOnUi(
++                        "已保存朗读定位日志: ${result.displayPath}",
++                        Toast.LENGTH_LONG
++                    )
+                 }
+             }
+             return super.onPreferenceTreeClick(preference)
+diff --git a/app/src/main/java/io/legado/app/ui/book/read/page/ReadAloudVisualTrace.kt b/app/src/main/java/io/legado/app/ui/book/read/page/ReadAloudVisualTrace.kt
+index 060fe5764..4174e2089 100644
+--- a/app/src/main/java/io/legado/app/ui/book/read/page/ReadAloudVisualTrace.kt
++++ b/app/src/main/java/io/legado/app/ui/book/read/page/ReadAloudVisualTrace.kt
+@@ -1,9 +1,11 @@
+ package io.legado.app.ui.book.read.page
+ 
++import android.content.ContentValues
+ import android.content.Context
+ import android.os.Build
++import android.os.Environment
++import android.provider.MediaStore
+ import io.legado.app.BuildConfig
+-import io.legado.app.utils.externalCache
+ import java.io.File
+ import java.text.SimpleDateFormat
+ import java.util.ArrayDeque
+@@ -14,11 +16,17 @@ internal object ReadAloudVisualTrace {
+ 
+     private const val MAX_AGE_MS = 5 * 60 * 1000L
+     private const val MAX_EVENTS = 800
++    private const val DOWNLOAD_SUBDIR = "legado-tts-debug"
+     private val lock = Any()
+     private val timeFormat = SimpleDateFormat("HH:mm:ss.SSS", Locale.US)
+     private val fileFormat = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US)
+     private val events = ArrayDeque<Entry>()
+ 
++    data class ExportResult(
++        val fileName: String,
++        val displayPath: String
++    )
++
+     private data class Entry(
+         val time: Long,
+         val event: String,
+@@ -33,17 +41,60 @@ internal object ReadAloudVisualTrace {
+         }
+     }
+ 
+-    fun export(context: Context): File {
++    fun export(context: Context): ExportResult {
+         val now = System.currentTimeMillis()
+         val snapshot = synchronized(lock) {
+             pruneLocked(now)
+             events.toList()
+         }
+-        val dir = File(context.externalCache, "read-aloud-debug")
++        val fileName = "read-aloud-visual-${fileFormat.format(Date(now))}.txt"
++        val dump = buildDump(now, snapshot)
++        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
++            exportToMediaStoreDownloads(context, fileName, dump)
++        } else {
++            exportToPublicDownloads(fileName, dump)
++        }
++    }
++
++    private fun exportToMediaStoreDownloads(
++        context: Context,
++        fileName: String,
++        dump: String
++    ): ExportResult {
++        val relativePath = "${Environment.DIRECTORY_DOWNLOADS}/$DOWNLOAD_SUBDIR"
++        val contentValues = ContentValues().apply {
++            put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
++            put(MediaStore.MediaColumns.MIME_TYPE, "text/plain")
++            put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath)
++            put(MediaStore.MediaColumns.IS_PENDING, 1)
++        }
++        val resolver = context.contentResolver
++        val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
++            ?: error("Can not create download file")
++        try {
++            resolver.openOutputStream(uri)?.use { output ->
++                output.write(dump.toByteArray())
++            } ?: error("Can not open download file")
++            contentValues.clear()
++            contentValues.put(MediaStore.MediaColumns.IS_PENDING, 0)
++            resolver.update(uri, contentValues, null, null)
++        } catch (e: Throwable) {
++            resolver.delete(uri, null, null)
++            throw e
++        }
++        return ExportResult(fileName, "$relativePath/$fileName")
++    }
++
++    @Suppress("DEPRECATION")
++    private fun exportToPublicDownloads(
++        fileName: String,
++        dump: String
++    ): ExportResult {
++        val dir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), DOWNLOAD_SUBDIR)
+         dir.mkdirs()
+-        val file = File(dir, "read-aloud-visual-${fileFormat.format(Date(now))}.txt")
+-        file.writeText(buildDump(now, snapshot))
+-        return file
++        val file = File(dir, fileName)
++        file.writeText(dump)
++        return ExportResult(fileName, file.absolutePath)
+     }
+ 
+     private fun pruneLocked(now: Long) {
+diff --git a/app/src/main/res/values/strings.xml b/app/src/main/res/values/strings.xml
+index 72eed87b2..d3dd3e75f 100644
+--- a/app/src/main/res/values/strings.xml
++++ b/app/src/main/res/values/strings.xml
+@@ -971,7 +971,7 @@
+     <string name="read_aloud_visual_position">Read aloud from visual position</string>
+     <string name="read_aloud_visual_position_summary">When enabled, previous/next paragraph controls in the reader use the paragraph near the screen center</string>
+     <string name="read_aloud_visual_debug_log">Save read aloud visual log</string>
+-    <string name="read_aloud_visual_debug_log_summary">Save recent visual page, render page, and TTS position events for debugging</string>
++    <string name="read_aloud_visual_debug_log_summary">Save recent visual page, render page, and TTS position events to Download/legado-tts-debug</string>
+     <string name="check_source_show_debug_message">Check book source shows debug message</string>
+     <string name="check_source_show_debug_message_summary">Show network status and timestamp during source checking</string>
+     <string name="need_login">Require Login</string>
+-- 
+2.33.0.windows.2
+
