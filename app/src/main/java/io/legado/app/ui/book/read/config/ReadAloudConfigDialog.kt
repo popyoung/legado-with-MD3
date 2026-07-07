@@ -146,8 +146,11 @@ class ReadAloudConfigDialog : BasePrefDialogFragment() {
                 PreferKey.ttsEngine -> showDialogFragment(SpeakEngineDialog())
                 "sysTtsConfig" -> IntentHelp.openTTSSetting()
                 "saveReadAloudVisualLog" -> {
-                    val file = ReadAloudVisualTrace.export(requireContext())
-                    requireContext().toastOnUi("已保存朗读定位日志: ${file.absolutePath}", Toast.LENGTH_LONG)
+                    val result = ReadAloudVisualTrace.export(requireContext())
+                    requireContext().toastOnUi(
+                        "已保存朗读定位日志: ${result.displayPath}",
+                        Toast.LENGTH_LONG
+                    )
                 }
             }
             return super.onPreferenceTreeClick(preference)

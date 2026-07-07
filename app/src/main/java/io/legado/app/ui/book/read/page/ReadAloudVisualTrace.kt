@@ -1,9 +1,11 @@
 package io.legado.app.ui.book.read.page
 
+import android.content.ContentValues
 import android.content.Context
 import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
 import io.legado.app.BuildConfig
-import io.legado.app.utils.externalCache
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.ArrayDeque
@@ -14,10 +16,16 @@ internal object ReadAloudVisualTrace {
 
     private const val MAX_AGE_MS = 5 * 60 * 1000L
     private const val MAX_EVENTS = 800
+    private const val DOWNLOAD_SUBDIR = "legado-tts-debug"
     private val lock = Any()
     private val timeFormat = SimpleDateFormat("HH:mm:ss.SSS", Locale.US)
     private val fileFormat = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US)
     private val events = ArrayDeque<Entry>()
+
+    data class ExportResult(
+        val fileName: String,
+        val displayPath: String
+    )
 
     private data class Entry(
         val time: Long,
@@ -33,17 +41,60 @@ internal object ReadAloudVisualTrace {
         }
     }
 
-    fun export(context: Context): File {
+    fun export(context: Context): ExportResult {
         val now = System.currentTimeMillis()
         val snapshot = synchronized(lock) {
             pruneLocked(now)
             events.toList()
         }
-        val dir = File(context.externalCache, "read-aloud-debug")
+        val fileName = "read-aloud-visual-${fileFormat.format(Date(now))}.txt"
+        val dump = buildDump(now, snapshot)
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            exportToMediaStoreDownloads(context, fileName, dump)
+        } else {
+            exportToPublicDownloads(fileName, dump)
+        }
+    }
+
+    private fun exportToMediaStoreDownloads(
+        context: Context,
+        fileName: String,
+        dump: String
+    ): ExportResult {
+        val relativePath = "${Environment.DIRECTORY_DOWNLOADS}/$DOWNLOAD_SUBDIR"
+        val contentValues = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+            put(MediaStore.MediaColumns.MIME_TYPE, "text/plain")
+            put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath)
+            put(MediaStore.MediaColumns.IS_PENDING, 1)
+        }
+        val resolver = context.contentResolver
+        val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
+            ?: error("Can not create download file")
+        try {
+            resolver.openOutputStream(uri)?.use { output ->
+                output.write(dump.toByteArray())
+            } ?: error("Can not open download file")
+            contentValues.clear()
+            contentValues.put(MediaStore.MediaColumns.IS_PENDING, 0)
+            resolver.update(uri, contentValues, null, null)
+        } catch (e: Throwable) {
+            resolver.delete(uri, null, null)
+            throw e
+        }
+        return ExportResult(fileName, "$relativePath/$fileName")
+    }
+
+    @Suppress("DEPRECATION")
+    private fun exportToPublicDownloads(
+        fileName: String,
+        dump: String
+    ): ExportResult {
+        val dir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), DOWNLOAD_SUBDIR)
         dir.mkdirs()
-        val file = File(dir, "read-aloud-visual-${fileFormat.format(Date(now))}.txt")
-        file.writeText(buildDump(now, snapshot))
-        return file
+        val file = File(dir, fileName)
+        file.writeText(dump)
+        return ExportResult(fileName, file.absolutePath)
     }
 
     private fun pruneLocked(now: Long) {

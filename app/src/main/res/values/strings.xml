@@ -971,7 +971,7 @@
     <string name="read_aloud_visual_position">Read aloud from visual position</string>
     <string name="read_aloud_visual_position_summary">When enabled, previous/next paragraph controls in the reader use the paragraph near the screen center</string>
     <string name="read_aloud_visual_debug_log">Save read aloud visual log</string>
-    <string name="read_aloud_visual_debug_log_summary">Save recent visual page, render page, and TTS position events for debugging</string>
+    <string name="read_aloud_visual_debug_log_summary">Save recent visual page, render page, and TTS position events to Download/legado-tts-debug</string>
     <string name="check_source_show_debug_message">Check book source shows debug message</string>
     <string name="check_source_show_debug_message_summary">Show network status and timestamp during source checking</string>
     <string name="need_login">Require Login</string>
