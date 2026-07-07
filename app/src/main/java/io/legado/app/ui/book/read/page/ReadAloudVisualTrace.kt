@@ -15,7 +15,7 @@ import java.util.Locale
 internal object ReadAloudVisualTrace {
 
     private const val MAX_AGE_MS = 5 * 60 * 1000L
-    private const val MAX_EVENTS = 800
+    private const val MAX_EVENTS = 5000
     private const val DOWNLOAD_SUBDIR = "legado-tts-debug"
     private val lock = Any()
     private val timeFormat = SimpleDateFormat("HH:mm:ss.SSS", Locale.US)

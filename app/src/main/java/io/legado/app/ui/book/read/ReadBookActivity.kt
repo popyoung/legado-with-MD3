@@ -1689,7 +1689,9 @@ class ReadBookActivity : BaseReadBookActivity(),
             }
             return
         }
-        val initialEffectiveOffset = readAloudNextChapterInitialOffset(textChapter, pageIndex)
+        val initialEffectiveOffset = paragraph?.let {
+            readAloudNextChapterInitialOffset(textChapter, pageIndex, it)
+        }
         jumpToReadAloudPage(textChapter, pageIndex, paragraph, initialEffectiveOffset) {
             isCurrentReadAloudRestore(restoreSerial, chapterIndex, chapterStart)
         }
@@ -1700,6 +1702,7 @@ class ReadBookActivity : BaseReadBookActivity(),
         pageIndex: Int,
         paragraph: TextParagraph?,
         initialEffectiveOffset: Int?,
+        afterJump: () -> Unit = {},
         isCurrent: () -> Boolean = { true }
     ) {
         ReadBook.withReadAloudPageChange {
@@ -1709,6 +1712,9 @@ class ReadBookActivity : BaseReadBookActivity(),
                     updateReadAloudParagraphSpan(textChapter, it)
                     if (!isCurrent()) return@skipToPage
                     binding.readView.followReadAloudParagraph(it, initialEffectiveOffset)
+                }
+                if (isCurrent()) {
+                    afterJump()
                 }
             }
         }
@@ -2209,7 +2215,7 @@ class ReadBookActivity : BaseReadBookActivity(),
             return
         }
 
-        val initialEffectiveOffset = readAloudNextChapterInitialOffset(textChapter, pageIndex)
+        val initialEffectiveOffset = readAloudNextChapterInitialOffset(textChapter, pageIndex, paragraph)
         updateReadAloudParagraphSpan(textChapter, paragraph)
         val followSucceeded = binding.readView.followReadAloudParagraph(
             paragraph = paragraph,
@@ -2249,9 +2255,9 @@ class ReadBookActivity : BaseReadBookActivity(),
                     textChapter = textChapter,
                     pageIndex = pageIndex,
                     paragraph = paragraph,
-                    initialEffectiveOffset = initialEffectiveOffset
+                    initialEffectiveOffset = initialEffectiveOffset,
+                    afterJump = { updateReadAloudVisualCenterIndicator() }
                 )
-                updateReadAloudVisualCenterIndicator()
             }
         }
     }
@@ -2272,13 +2278,21 @@ class ReadBookActivity : BaseReadBookActivity(),
 
     private fun readAloudNextChapterInitialOffset(
         textChapter: TextChapter,
-        pageIndex: Int
+        pageIndex: Int,
+        paragraph: TextParagraph
     ): Int? {
         if (pageIndex != 0) return null
         val visualPage = binding.readView.curPage.textPage
         if (visualPage.chapterIndex != textChapter.chapter.index - 1) return null
         if (visualPage.index != visualPage.pageSize - 1) return null
-        return binding.readView.readAloudNextChapterOffset()
+        val firstLine = paragraph.textLines.firstOrNull() ?: return null
+        val lastLine = paragraph.textLines.lastOrNull() ?: return null
+        return ReadAloudVisualPositioner.chapterBoundaryInitialOffset(
+            paragraphTop = firstLine.lineTop,
+            paragraphBottom = lastLine.lineBottom,
+            visibleTop = ChapterProvider.paddingTop.toFloat(),
+            visibleHeight = ChapterProvider.visibleHeight.toFloat()
+        )
     }
 
     private fun readAloudParagraphVisibleOnScreen(

@@ -83,6 +83,25 @@ internal object ReadAloudVisualPositioner {
         return (previousEffectiveOffset + previousPageHeight).roundToInt()
     }
 
+    fun chapterBoundaryInitialOffset(
+        paragraphTop: Float,
+        paragraphBottom: Float,
+        visibleTop: Float,
+        visibleHeight: Float
+    ): Int? {
+        if (visibleHeight <= 0f || paragraphBottom <= paragraphTop) {
+            return null
+        }
+        val safeTop = visibleTop + visibleHeight * SAFE_EDGE_RATIO
+        return calculateOffset(
+            paragraphTop = paragraphTop,
+            paragraphBottom = paragraphBottom,
+            visibleTop = visibleTop,
+            visibleHeight = visibleHeight,
+            currentOffset = safeTop - paragraphTop
+        )
+    }
+
     fun contentOffset(
         pageOffset: Float,
         readAloudOffset: Float,

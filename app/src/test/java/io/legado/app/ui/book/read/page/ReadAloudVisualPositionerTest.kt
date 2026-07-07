@@ -193,6 +193,30 @@ class ReadAloudVisualPositionerTest {
     }
 
     @Test
+    fun chapterBoundaryInitialOffsetStartsParagraphAtMiddleAreaTop() {
+        val offset = ReadAloudVisualPositioner.chapterBoundaryInitialOffset(
+            paragraphTop = 21f,
+            paragraphBottom = 114f,
+            visibleTop = 0f,
+            visibleHeight = 3032f
+        )
+
+        assertEquals(434, offset)
+    }
+
+    @Test
+    fun chapterBoundaryInitialOffsetStartsLongParagraphAtVisibleTop() {
+        val offset = ReadAloudVisualPositioner.chapterBoundaryInitialOffset(
+            paragraphTop = 21f,
+            paragraphBottom = 2900f,
+            visibleTop = 0f,
+            visibleHeight = 3032f
+        )
+
+        assertEquals(-21, offset)
+    }
+
+    @Test
     fun activeFollowOffsetIsAddedToScrollOffsetForDrawingOnly() {
         val offset = ReadAloudVisualPositioner.contentOffset(
             pageOffset = -300f,
