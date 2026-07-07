@@ -217,6 +217,70 @@ class ReadAloudVisualPositionerTest {
     }
 
     @Test
+    fun visiblePreviousChapterLastPageUsesChapterBoundaryOffset() {
+        val shouldUseOffset = ReadAloudVisualPositioner.shouldUseChapterBoundaryInitialOffset(
+            targetPageIndex = 0,
+            previousChapterLastPageVisible = true
+        )
+
+        assertTrue(shouldUseOffset)
+    }
+
+    @Test
+    fun hiddenPreviousChapterLastPageDoesNotUseChapterBoundaryOffset() {
+        val shouldUseOffset = ReadAloudVisualPositioner.shouldUseChapterBoundaryInitialOffset(
+            targetPageIndex = 0,
+            previousChapterLastPageVisible = false
+        )
+
+        assertFalse(shouldUseOffset)
+    }
+
+    @Test
+    fun nonFirstTargetPageDoesNotUseChapterBoundaryOffset() {
+        val shouldUseOffset = ReadAloudVisualPositioner.shouldUseChapterBoundaryInitialOffset(
+            targetPageIndex = 1,
+            previousChapterLastPageVisible = true
+        )
+
+        assertFalse(shouldUseOffset)
+    }
+
+    @Test
+    fun readAloudPageChangeSkipsCenterIndicatorPreUpdate() {
+        val shouldUpdate = ReadAloudVisualPositioner.shouldUpdateCenterIndicatorOnPageChanged(
+            fromReadAloud = true
+        )
+
+        assertFalse(shouldUpdate)
+    }
+
+    @Test
+    fun userPageChangeUpdatesCenterIndicator() {
+        val shouldUpdate = ReadAloudVisualPositioner.shouldUpdateCenterIndicatorOnPageChanged(
+            fromReadAloud = false
+        )
+
+        assertTrue(shouldUpdate)
+    }
+
+    @Test
+    fun quietCenterIndicatorEvaluationTracesOnlyChanges() {
+        assertFalse(
+            ReadAloudVisualPositioner.shouldTraceCenterIndicatorEvaluation(
+                forceTrace = false,
+                indicatorChanged = false
+            )
+        )
+        assertTrue(
+            ReadAloudVisualPositioner.shouldTraceCenterIndicatorEvaluation(
+                forceTrace = false,
+                indicatorChanged = true
+            )
+        )
+    }
+
+    @Test
     fun activeFollowOffsetIsAddedToScrollOffsetForDrawingOnly() {
         val offset = ReadAloudVisualPositioner.contentOffset(
             pageOffset = -300f,

@@ -102,6 +102,24 @@ internal object ReadAloudVisualPositioner {
         )
     }
 
+    fun shouldUseChapterBoundaryInitialOffset(
+        targetPageIndex: Int,
+        previousChapterLastPageVisible: Boolean
+    ): Boolean {
+        return targetPageIndex == 0 && previousChapterLastPageVisible
+    }
+
+    fun shouldUpdateCenterIndicatorOnPageChanged(fromReadAloud: Boolean): Boolean {
+        return !fromReadAloud
+    }
+
+    fun shouldTraceCenterIndicatorEvaluation(
+        forceTrace: Boolean,
+        indicatorChanged: Boolean
+    ): Boolean {
+        return forceTrace || indicatorChanged
+    }
+
     fun contentOffset(
         pageOffset: Float,
         readAloudOffset: Float,

@@ -460,8 +460,8 @@ class PageView(context: Context) : FrameLayout(context) {
         return binding.contentTextView.followReadAloudParagraph(paragraph, initialEffectiveOffset)
     }
 
-    fun setReadAloudVisualCenterIndicator(show: Boolean) {
-        binding.contentTextView.setReadAloudVisualCenterIndicator(show)
+    fun setReadAloudVisualCenterIndicator(show: Boolean): Boolean {
+        return binding.contentTextView.setReadAloudVisualCenterIndicator(show)
     }
 
     fun readAloudVisualDebugState(): String {
@@ -560,6 +560,10 @@ class PageView(context: Context) : FrameLayout(context) {
 
     fun containsVisibleChapterPosition(chapterIndex: Int, chapterPosition: Int): Boolean {
         return binding.contentTextView.containsVisibleChapterPosition(chapterIndex, chapterPosition)
+    }
+
+    fun containsVisibleChapterLastPage(chapterIndex: Int): Boolean {
+        return binding.contentTextView.containsVisibleChapterLastPage(chapterIndex)
     }
 
     fun markAsMainView() {

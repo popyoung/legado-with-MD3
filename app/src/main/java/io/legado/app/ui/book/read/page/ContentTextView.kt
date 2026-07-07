@@ -265,6 +265,7 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
             event = "scroll",
             detail = "mOffset=$mOffset before=[$beforeState] after=[${readAloudVisualDebugState()}]"
         )
+        callBack.onReadAloudVisualFollowInterrupted()
         postInvalidate()
     }
 
@@ -409,14 +410,14 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
             ReadAloudVisualPositioner.interruptFollowByUserScroll(readAloudFollowState())
         )
         ReadAloudVisualTrace.record("interruptFollowByScroll", readAloudVisualDebugState())
-        callBack.onReadAloudVisualFollowInterrupted()
     }
 
-    fun setReadAloudVisualCenterIndicator(show: Boolean) {
-        if (readAloudVisualCenterIndicator == show) return
+    fun setReadAloudVisualCenterIndicator(show: Boolean): Boolean {
+        if (readAloudVisualCenterIndicator == show) return false
         readAloudVisualCenterIndicator = show
         ReadAloudVisualTrace.record("centerIndicator", "show=$show ${readAloudVisualDebugState()}")
         postInvalidate()
+        return true
     }
 
     fun readAloudVisualDebugState(): String {
@@ -802,6 +803,25 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
                 if (textLine.isVisible(relativeOffset) && chapterPosition in textLine.chapterIndices) {
                     return true
                 }
+            }
+        }
+        return false
+    }
+
+    fun containsVisibleChapterLastPage(chapterIndex: Int): Boolean {
+        var relativeOffset: Float
+        for (relativePos in 0..2) {
+            relativeOffset = drawContentOffset(relativePos)
+            if (relativePos > 0) {
+                if (!callBack.isScroll) break
+                if (relativeOffset >= ChapterProvider.visibleHeight) break
+            }
+            val textPage = relativeDrawPage(relativePos)
+            if (textPage.chapterIndex != chapterIndex || textPage.index != textPage.pageSize - 1) {
+                continue
+            }
+            if (textPage.lines.any { it.isVisible(relativeOffset) }) {
+                return true
             }
         }
         return false

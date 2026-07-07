@@ -699,6 +699,10 @@ class ReadView(context: Context, attrs: AttributeSet) :
         return curPage.containsVisibleChapterPosition(chapterIndex, chapterPosition)
     }
 
+    fun containsVisibleChapterLastPage(chapterIndex: Int): Boolean {
+        return curPage.containsVisibleChapterLastPage(chapterIndex)
+    }
+
     fun readAloudNextChapterOffset(): Int? {
         return curPage.readAloudNextChapterOffset()
     }
@@ -710,8 +714,8 @@ class ReadView(context: Context, attrs: AttributeSet) :
         return curPage.followReadAloudParagraph(paragraph, initialEffectiveOffset)
     }
 
-    fun setReadAloudVisualCenterIndicator(show: Boolean) {
-        curPage.setReadAloudVisualCenterIndicator(show)
+    fun setReadAloudVisualCenterIndicator(show: Boolean): Boolean {
+        return curPage.setReadAloudVisualCenterIndicator(show)
     }
 
     fun readAloudVisualDebugState(): String {

@@ -1213,7 +1213,9 @@ class ReadBookActivity : BaseReadBookActivity(),
         if (ReadAloudPageChangePolicy.shouldRefreshReadViewOnPageChanged(fromReadAloud)) {
             binding.readView.onPageChange()
         }
-        updateReadAloudVisualCenterIndicator()
+        if (ReadAloudVisualPositioner.shouldUpdateCenterIndicatorOnPageChanged(fromReadAloud)) {
+            updateReadAloudVisualCenterIndicator()
+        }
         handler.post {
             upSeekBarProgress()
         }
@@ -1759,7 +1761,7 @@ class ReadBookActivity : BaseReadBookActivity(),
         if (BaseReadAloudService.isPlay()) {
             readAloudVisualFollowPaused = true
         }
-        updateReadAloudVisualCenterIndicator()
+        updateReadAloudVisualCenterIndicator(forceTrace = false)
     }
 
     /**
@@ -2262,18 +2264,25 @@ class ReadBookActivity : BaseReadBookActivity(),
         }
     }
 
-    private fun updateReadAloudVisualCenterIndicator() {
+    private fun updateReadAloudVisualCenterIndicator(forceTrace: Boolean = true) {
         val readAloudPositionVisible = readAloudPositionVisibleOnScreen()
         val show = ReadAloudVisualPositioner.shouldShowVisualCenterIndicator(
             visualPositionEnabled = AppConfig.readAloudVisualPosition,
             readAloudPlaying = BaseReadAloudService.isPlay(),
             readAloudPositionVisible = readAloudPositionVisible
         )
-        binding.readView.setReadAloudVisualCenterIndicator(show)
-        ReadAloudVisualTrace.record(
-            event = "centerIndicatorEval",
-            detail = "show=$show visible=$readAloudPositionVisible visualPosition=${AppConfig.readAloudVisualPosition} playing=${BaseReadAloudService.isPlay()} visual=[${binding.readView.readAloudVisualDebugState()}]"
-        )
+        val indicatorChanged = binding.readView.setReadAloudVisualCenterIndicator(show)
+        if (
+            ReadAloudVisualPositioner.shouldTraceCenterIndicatorEvaluation(
+                forceTrace = forceTrace,
+                indicatorChanged = indicatorChanged
+            )
+        ) {
+            ReadAloudVisualTrace.record(
+                event = "centerIndicatorEval",
+                detail = "show=$show visible=$readAloudPositionVisible visualPosition=${AppConfig.readAloudVisualPosition} playing=${BaseReadAloudService.isPlay()} visual=[${binding.readView.readAloudVisualDebugState()}]"
+            )
+        }
     }
 
     private fun readAloudNextChapterInitialOffset(
@@ -2281,10 +2290,15 @@ class ReadBookActivity : BaseReadBookActivity(),
         pageIndex: Int,
         paragraph: TextParagraph
     ): Int? {
-        if (pageIndex != 0) return null
-        val visualPage = binding.readView.curPage.textPage
-        if (visualPage.chapterIndex != textChapter.chapter.index - 1) return null
-        if (visualPage.index != visualPage.pageSize - 1) return null
+        if (!ReadAloudVisualPositioner.shouldUseChapterBoundaryInitialOffset(
+                targetPageIndex = pageIndex,
+                previousChapterLastPageVisible = binding.readView.containsVisibleChapterLastPage(
+                    textChapter.chapter.index - 1
+                )
+            )
+        ) {
+            return null
+        }
         val firstLine = paragraph.textLines.firstOrNull() ?: return null
         val lastLine = paragraph.textLines.lastOrNull() ?: return null
         return ReadAloudVisualPositioner.chapterBoundaryInitialOffset(
