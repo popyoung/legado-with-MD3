@@ -1,0 +1,295 @@
+From 6717b09ec83a34d5dcbc943289f7529bdd409dbc Mon Sep 17 00:00:00 2001
+From: popyoung <popyoung@163.com>
+Date: Wed, 8 Jul 2026 01:17:56 +0800
+Subject: [PATCH] Fix TTS visual follow scroll position drift
+
+---
+ .../main/java/io/legado/app/model/ReadBook.kt | 10 +++-
+ .../app/service/BaseReadAloudService.kt       | 27 +++++-----
+ .../app/ui/book/read/page/ContentTextView.kt  | 29 +++++++++--
+ .../read/page/ReadAloudVisualPositioner.kt    | 47 ++++++++++++++++-
+ .../page/ReadAloudVisualPositionerTest.kt     | 50 +++++++++++++++++--
+ 5 files changed, 138 insertions(+), 25 deletions(-)
+
+diff --git a/app/src/main/java/io/legado/app/model/ReadBook.kt b/app/src/main/java/io/legado/app/model/ReadBook.kt
+index 311c1624d..628c1d418 100644
+--- a/app/src/main/java/io/legado/app/model/ReadBook.kt
++++ b/app/src/main/java/io/legado/app/model/ReadBook.kt
+@@ -557,8 +557,14 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
+         }
+     }
+ 
+-    fun skipToPage(index: Int, success: (() -> Unit)? = null) {
+-        durChapterPos = curTextChapter?.getReadLength(index) ?: index
++    fun skipToPage(
++        index: Int,
++        chapterPos: Int? = null,
++        success: (() -> Unit)? = null
++    ) {
++        durChapterPos = chapterPos?.coerceAtLeast(0)
++            ?: curTextChapter?.getReadLength(index)
++            ?: index
+         callBack?.upContent {
+             success?.invoke()
+         }
+diff --git a/app/src/main/java/io/legado/app/service/BaseReadAloudService.kt b/app/src/main/java/io/legado/app/service/BaseReadAloudService.kt
+index 3e17fc093..9c5011b1c 100644
+--- a/app/src/main/java/io/legado/app/service/BaseReadAloudService.kt
++++ b/app/src/main/java/io/legado/app/service/BaseReadAloudService.kt
+@@ -403,12 +403,7 @@ abstract class BaseReadAloudService : BaseService(),
+                     if (!paragraphs[nowSpeak].isParagraphEnd) readAloudNumber++
+                 }
+                 alignReadBookToReadAloudChapter()
+-                if (readAloudNumber < it.getReadLength(pageIndex)) {
+-                    pageIndex--
+-                    ReadBook.withReadAloudPageChange {
+-                        ReadBook.skipToPage(pageIndex)
+-                    }
+-                }
++                syncReadBookPageToReadAloudPosition(it)
+             }
+             upTtsProgress(readAloudNumber + 1)
+             rememberCurrentReadAloudPosition()
+@@ -432,14 +427,7 @@ abstract class BaseReadAloudService : BaseService(),
+                     if (!paragraphs[nowSpeak].isParagraphEnd) readAloudNumber--
+                 }
+                 alignReadBookToReadAloudChapter()
+-                if (pageIndex + 1 < it.pageSize
+-                    && readAloudNumber >= it.getReadLength(pageIndex + 1)
+-                ) {
+-                    pageIndex++
+-                    ReadBook.withReadAloudPageChange {
+-                        ReadBook.skipToPage(pageIndex)
+-                    }
+-                }
++                syncReadBookPageToReadAloudPosition(it)
+             }
+             upTtsProgress(readAloudNumber + 1)
+             rememberCurrentReadAloudPosition()
+@@ -455,6 +443,17 @@ abstract class BaseReadAloudService : BaseService(),
+         ReadBook.alignToReadAloudChapter(textChapter, readAloudNumber, preloadAdjacent)
+     }
+ 
++    private fun syncReadBookPageToReadAloudPosition(textChapter: TextChapter) {
++        val targetPageIndex = textChapter.getPageIndexByCharIndex(readAloudNumber)
++        if (targetPageIndex < 0 || targetPageIndex == pageIndex) {
++            return
++        }
++        pageIndex = targetPageIndex
++        ReadBook.withReadAloudPageChange {
++            ReadBook.skipToPage(pageIndex, chapterPos = readAloudNumber)
++        }
++    }
++
+     private fun restoreReadBookToReadAloudPosition() {
+         val textChapter = textChapter ?: return
+         ReadBook.withReadAloudPageChange {
+diff --git a/app/src/main/java/io/legado/app/ui/book/read/page/ContentTextView.kt b/app/src/main/java/io/legado/app/ui/book/read/page/ContentTextView.kt
+index 900fd9538..60bb3f8e3 100644
+--- a/app/src/main/java/io/legado/app/ui/book/read/page/ContentTextView.kt
++++ b/app/src/main/java/io/legado/app/ui/book/read/page/ContentTextView.kt
+@@ -406,10 +406,33 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
+ 
+     private fun resetReadAloudFollowByUserScroll() {
+         if (!readAloudFollowActive && readAloudPageOffset == 0) return
+-        applyReadAloudFollowState(
+-            ReadAloudVisualPositioner.interruptFollowByUserScroll(readAloudFollowState())
++        val textChapter = textPage.getTextChapter()
++        val previousPage = textChapter.getPage(textPage.index - 1)
++        val nextPage = textChapter.getPage(textPage.index + 1)
++        val nextPlusPage = textChapter.getPage(textPage.index + 2)
++        val interruption = ReadAloudVisualPositioner.interruptFollowByUserScroll(
++            state = readAloudFollowState(),
++            previousPageHeight = previousPage?.height,
++            currentPageHeight = textPage.height,
++            nextPageHeight = nextPage?.height,
++            nextPlusPageHeight = nextPlusPage?.height
++        )
++        when (interruption.pageShift) {
++            -1 -> previousPage
++            1 -> nextPage
++            2 -> nextPlusPage
++            else -> null
++        }?.let {
++            ReadBook.withReadAloudPageChange {
++                ReadBook.setPageIndex(it.index)
++            }
++            textPage = it
++        }
++        applyReadAloudFollowState(interruption.state)
++        ReadAloudVisualTrace.record(
++            "interruptFollowByScroll",
++            "pageShift=${interruption.pageShift} ${readAloudVisualDebugState()}"
+         )
+-        ReadAloudVisualTrace.record("interruptFollowByScroll", readAloudVisualDebugState())
+     }
+ 
+     fun setReadAloudVisualCenterIndicator(show: Boolean): Boolean {
+diff --git a/app/src/main/java/io/legado/app/ui/book/read/page/ReadAloudVisualPositioner.kt b/app/src/main/java/io/legado/app/ui/book/read/page/ReadAloudVisualPositioner.kt
+index b6152a4a2..81b9109d3 100644
+--- a/app/src/main/java/io/legado/app/ui/book/read/page/ReadAloudVisualPositioner.kt
++++ b/app/src/main/java/io/legado/app/ui/book/read/page/ReadAloudVisualPositioner.kt
+@@ -4,7 +4,7 @@ import kotlin.math.roundToInt
+ 
+ internal object ReadAloudVisualPositioner {
+ 
+-    private const val SAFE_EDGE_RATIO = 0.15f
++    private const val SAFE_EDGE_RATIO = 0.10f
+ 
+     data class FollowState(
+         val pageOffset: Int,
+@@ -12,6 +12,11 @@ internal object ReadAloudVisualPositioner {
+         val active: Boolean
+     )
+ 
++    data class InterruptedFollowState(
++        val pageShift: Int,
++        val state: FollowState
++    )
++
+     enum class FollowFallback {
+         KeepVisualPage,
+         RefreshCurrentPage,
+@@ -188,6 +193,46 @@ internal object ReadAloudVisualPositioner {
+         )
+     }
+ 
++    fun interruptFollowByUserScroll(
++        state: FollowState,
++        previousPageHeight: Float?,
++        currentPageHeight: Float,
++        nextPageHeight: Float?,
++        nextPlusPageHeight: Float?
++    ): InterruptedFollowState {
++        var pageShift = 0
++        var pageOffset = contentOffset(
++            pageOffset = state.pageOffset.toFloat(),
++            readAloudOffset = state.readAloudOffset.toFloat(),
++            readAloudActive = state.active
++        )
++        if (pageOffset > 0f && previousPageHeight != null && previousPageHeight > 0f) {
++            pageOffset -= previousPageHeight
++            pageShift = -1
++        } else if (currentPageHeight > 0f) {
++            if (pageOffset < -currentPageHeight && nextPageHeight != null && nextPageHeight > 0f) {
++                pageOffset += currentPageHeight
++                pageShift = 1
++                if (
++                    pageOffset < -nextPageHeight &&
++                    nextPlusPageHeight != null &&
++                    nextPlusPageHeight > 0f
++                ) {
++                    pageOffset += nextPageHeight
++                    pageShift = 2
++                }
++            }
++        }
++        return InterruptedFollowState(
++            pageShift = pageShift,
++            state = state.copy(
++                pageOffset = pageOffset.roundToInt(),
++                readAloudOffset = 0,
++                active = false
++            )
++        )
++    }
++
+     fun resetPageState(state: FollowState): FollowState {
+         return clearFollowState(state).copy(pageOffset = 0)
+     }
+diff --git a/app/src/test/java/io/legado/app/ui/book/read/page/ReadAloudVisualPositionerTest.kt b/app/src/test/java/io/legado/app/ui/book/read/page/ReadAloudVisualPositionerTest.kt
+index 17897895b..128ef3fdb 100644
+--- a/app/src/test/java/io/legado/app/ui/book/read/page/ReadAloudVisualPositionerTest.kt
++++ b/app/src/test/java/io/legado/app/ui/book/read/page/ReadAloudVisualPositionerTest.kt
+@@ -67,20 +67,20 @@ class ReadAloudVisualPositionerTest {
+             visibleHeight = 1000f
+         )
+ 
+-        assertEquals(-650, offset)
++        assertEquals(-700, offset)
+     }
+ 
+     @Test
+     fun previousFollowOffsetDoesNotKeepNextParagraphNearBottom() {
+         val offset = ReadAloudVisualPositioner.calculateOffset(
+             paragraphTop = 960f,
+-            paragraphBottom = 1000f,
++            paragraphBottom = 1100f,
+             visibleTop = 100f,
+             visibleHeight = 1000f,
+             currentOffset = -50f
+         )
+ 
+-        assertEquals(-710, offset)
++        assertEquals(-760, offset)
+     }
+ 
+     @Test
+@@ -92,7 +92,7 @@ class ReadAloudVisualPositionerTest {
+             visibleHeight = 1000f
+         )
+ 
+-        assertEquals(230, offset)
++        assertEquals(180, offset)
+     }
+ 
+     @Test
+@@ -201,7 +201,7 @@ class ReadAloudVisualPositionerTest {
+             visibleHeight = 3032f
+         )
+ 
+-        assertEquals(434, offset)
++        assertEquals(282, offset)
+     }
+ 
+     @Test
+@@ -473,6 +473,46 @@ class ReadAloudVisualPositionerTest {
+         assertEquals(false, state.active)
+     }
+ 
++    @Test
++    fun userScrollInterruptionMaterializesNextVisualPageBeforeClearingFollow() {
++        val interruption = ReadAloudVisualPositioner.interruptFollowByUserScroll(
++            state = ReadAloudVisualPositioner.FollowState(
++                pageOffset = -1663,
++                readAloudOffset = -2340,
++                active = true
++            ),
++            previousPageHeight = 3051f,
++            currentPageHeight = 3051f,
++            nextPageHeight = 3032f,
++            nextPlusPageHeight = 3032f
++        )
++
++        assertEquals(1, interruption.pageShift)
++        assertEquals(-952, interruption.state.pageOffset)
++        assertEquals(0, interruption.state.readAloudOffset)
++        assertEquals(false, interruption.state.active)
++    }
++
++    @Test
++    fun userScrollInterruptionMaterializesPreviousVisualPageBeforeClearingFollow() {
++        val interruption = ReadAloudVisualPositioner.interruptFollowByUserScroll(
++            state = ReadAloudVisualPositioner.FollowState(
++                pageOffset = 0,
++                readAloudOffset = 452,
++                active = true
++            ),
++            previousPageHeight = 3051f,
++            currentPageHeight = 3032f,
++            nextPageHeight = 3032f,
++            nextPlusPageHeight = null
++        )
++
++        assertEquals(-1, interruption.pageShift)
++        assertEquals(-2599, interruption.state.pageOffset)
++        assertEquals(0, interruption.state.readAloudOffset)
++        assertEquals(false, interruption.state.active)
++    }
++
+     @Test
+     fun resetPageStateClearsScrollOffset() {
+         val state = ReadAloudVisualPositioner.resetPageState(
+-- 
+2.33.0.windows.2
+
