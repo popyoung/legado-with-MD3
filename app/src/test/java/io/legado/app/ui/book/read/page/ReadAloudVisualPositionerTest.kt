@@ -248,6 +248,28 @@ class ReadAloudVisualPositionerTest {
     }
 
     @Test
+    fun hiddenReadAloudPositionShowsVisualCenterIndicator() {
+        val shouldShow = ReadAloudVisualPositioner.shouldShowVisualCenterIndicator(
+            visualPositionEnabled = true,
+            readAloudPlaying = true,
+            readAloudPositionVisible = false
+        )
+
+        assertTrue(shouldShow)
+    }
+
+    @Test
+    fun visibleReadAloudPositionHidesVisualCenterIndicator() {
+        val shouldShow = ReadAloudVisualPositioner.shouldShowVisualCenterIndicator(
+            visualPositionEnabled = true,
+            readAloudPlaying = true,
+            readAloudPositionVisible = true
+        )
+
+        assertFalse(shouldShow)
+    }
+
+    @Test
     fun successfulVisualFollowKeepsExistingVisualPage() {
         val fallback = ReadAloudVisualPositioner.followFallback(
             followSucceeded = true,

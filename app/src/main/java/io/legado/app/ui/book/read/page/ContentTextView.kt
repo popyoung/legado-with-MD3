@@ -2,6 +2,7 @@ package io.legado.app.ui.book.read.page
 
 import android.content.Context
 import android.graphics.Canvas
+import android.graphics.DashPathEffect
 import android.graphics.Paint
 import android.util.AttributeSet
 import android.view.MotionEvent
@@ -67,6 +68,7 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
     private var autoPager: AutoPager? = null
     private var isScroll = false
     private var readAloudFollowActive = false
+    private var readAloudVisualCenterIndicator = false
     private val renderRunnable by lazy { Runnable { preRenderPage() } }
     private var lastClickTime = 0L
     private var doubleClick = false
@@ -75,6 +77,15 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
     val imagePaint by lazy {
         Paint().apply {
             isAntiAlias = AppConfig.useAntiAlias
+        }
+    }
+    private val readAloudVisualCenterPaint by lazy {
+        Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = context.getCompatColor(R.color.primaryText)
+            alpha = 140
+            strokeWidth = 1.5f.dpToPx()
+            style = Paint.Style.STROKE
+            pathEffect = DashPathEffect(floatArrayOf(8f.dpToPx(), 6f.dpToPx()), 0f)
         }
     }
 
@@ -111,6 +122,7 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
         check(!visibleRect.isEmpty) { "visibleRect 为空" }
         canvas.clipRect(visibleRect)
         drawPage(canvas)
+        drawReadAloudVisualCenterIndicator(canvas)
     }
 
     /**
@@ -172,6 +184,18 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
         previousPage.draw(this, canvas, previousOffset)
     }
 
+    private fun drawReadAloudVisualCenterIndicator(canvas: Canvas) {
+        if (!readAloudVisualCenterIndicator) return
+        val centerY = ChapterProvider.paddingTop + ChapterProvider.visibleHeight / 2f
+        canvas.drawLine(
+            visibleRect.left.toFloat(),
+            centerY,
+            visibleRect.right.toFloat(),
+            centerY,
+            readAloudVisualCenterPaint
+        )
+    }
+
     override fun computeScroll() {
         pageDelegate?.computeScroll()
         autoPager?.computeOffset()
@@ -185,6 +209,7 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
      * pageOffset + textPage.height 为 textPage 下方的高度
      */
     fun scroll(mOffset: Int) {
+        val beforeState = readAloudVisualDebugState()
         resetReadAloudFollowByUserScroll()
         pageOffset += mOffset
         if (longScreenshot) {
@@ -216,6 +241,10 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
                 pageDelegate?.abortAnim()
             }
         }
+        ReadAloudVisualTrace.record(
+            event = "scroll",
+            detail = "mOffset=$mOffset before=[$beforeState] after=[${readAloudVisualDebugState()}]"
+        )
         postInvalidate()
     }
 
@@ -262,6 +291,7 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
         val cleared = ReadAloudVisualPositioner.clearFollowState(state)
         if (state == cleared) return
         applyReadAloudFollowState(cleared)
+        ReadAloudVisualTrace.record("clearFollow", readAloudVisualDebugState())
         postInvalidate()
     }
 
@@ -293,10 +323,26 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
         val firstLine = paragraph.textLines.firstOrNull() ?: return false
         val lastLine = paragraph.textLines.lastOrNull() ?: return false
         if (firstLine.textPage.chapterIndex != textPage.chapterIndex) {
+            ReadAloudVisualTrace.record(
+                event = "followFail",
+                detail = "reason=chapterMismatch target=${firstLine.textPage.chapterIndex}/${firstLine.textPage.index} ${readAloudVisualDebugState()}"
+            )
             return false
         }
-        val paragraphTop = lineTopInVisualStream(firstLine) ?: return false
-        val paragraphBottom = lineBottomInVisualStream(lastLine) ?: return false
+        val paragraphTop = lineTopInVisualStream(firstLine) ?: run {
+            ReadAloudVisualTrace.record(
+                event = "followFail",
+                detail = "reason=topOutsideVisualStream target=${firstLine.textPage.chapterIndex}/${firstLine.textPage.index} ${readAloudVisualDebugState()}"
+            )
+            return false
+        }
+        val paragraphBottom = lineBottomInVisualStream(lastLine) ?: run {
+            ReadAloudVisualTrace.record(
+                event = "followFail",
+                detail = "reason=bottomOutsideVisualStream target=${lastLine.textPage.chapterIndex}/${lastLine.textPage.index} ${readAloudVisualDebugState()}"
+            )
+            return false
+        }
         val effectiveOffset = ReadAloudVisualPositioner.calculateOffset(
             paragraphTop = paragraphTop,
             paragraphBottom = paragraphBottom,
@@ -306,6 +352,10 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
         )
         readAloudPageOffset = effectiveOffset - pageOffset
         readAloudFollowActive = true
+        ReadAloudVisualTrace.record(
+            event = "follow",
+            detail = "target=${firstLine.textPage.chapterIndex}/${firstLine.textPage.index} paragraph=${paragraph.chapterPosition}-${paragraph.chapterIndices.last} top=$paragraphTop bottom=$paragraphBottom initial=$initialEffectiveOffset effective=$effectiveOffset ${readAloudVisualDebugState()}"
+        )
         postInvalidate()
         return true
     }
@@ -338,7 +388,19 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
         applyReadAloudFollowState(
             ReadAloudVisualPositioner.interruptFollowByUserScroll(readAloudFollowState())
         )
+        ReadAloudVisualTrace.record("interruptFollowByScroll", readAloudVisualDebugState())
         callBack.onReadAloudVisualFollowInterrupted()
+    }
+
+    fun setReadAloudVisualCenterIndicator(show: Boolean) {
+        if (readAloudVisualCenterIndicator == show) return
+        readAloudVisualCenterIndicator = show
+        ReadAloudVisualTrace.record("centerIndicator", "show=$show ${readAloudVisualDebugState()}")
+        postInvalidate()
+    }
+
+    fun readAloudVisualDebugState(): String {
+        return "textPage=${textPage.chapterIndex}/${textPage.index} pageSize=${textPage.pageSize} pageOffset=$pageOffset readAloudOffset=$readAloudPageOffset active=$readAloudFollowActive indicator=$readAloudVisualCenterIndicator content0=${contentOffset(0)} content1=${contentOffset(1)}"
     }
 
     /**

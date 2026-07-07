@@ -710,6 +710,14 @@ class ReadView(context: Context, attrs: AttributeSet) :
         return curPage.followReadAloudParagraph(paragraph, initialEffectiveOffset)
     }
 
+    fun setReadAloudVisualCenterIndicator(show: Boolean) {
+        curPage.setReadAloudVisualCenterIndicator(show)
+    }
+
+    fun readAloudVisualDebugState(): String {
+        return curPage.readAloudVisualDebugState()
+    }
+
     fun invalidateTextPage() {
         if (!AppConfig.optimizeRender) {
             return

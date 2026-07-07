@@ -8,6 +8,7 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.Toast
 import android.widget.LinearLayout
 import androidx.preference.ListPreference
 import androidx.preference.Preference
@@ -23,6 +24,7 @@ import io.legado.app.lib.prefs.SwitchPreference
 import io.legado.app.lib.prefs.fragment.PreferenceFragment
 import io.legado.app.model.ReadAloud
 import io.legado.app.service.BaseReadAloudService
+import io.legado.app.ui.book.read.page.ReadAloudVisualTrace
 import io.legado.app.ui.widget.number.NumberPickerDialog
 import io.legado.app.utils.GSON
 import io.legado.app.utils.StringUtils
@@ -143,6 +145,10 @@ class ReadAloudConfigDialog : BasePrefDialogFragment() {
 
                 PreferKey.ttsEngine -> showDialogFragment(SpeakEngineDialog())
                 "sysTtsConfig" -> IntentHelp.openTTSSetting()
+                "saveReadAloudVisualLog" -> {
+                    val file = ReadAloudVisualTrace.export(requireContext())
+                    requireContext().toastOnUi("已保存朗读定位日志: ${file.absolutePath}", Toast.LENGTH_LONG)
+                }
             }
             return super.onPreferenceTreeClick(preference)
         }

@@ -460,6 +460,14 @@ class PageView(context: Context) : FrameLayout(context) {
         return binding.contentTextView.followReadAloudParagraph(paragraph, initialEffectiveOffset)
     }
 
+    fun setReadAloudVisualCenterIndicator(show: Boolean) {
+        binding.contentTextView.setReadAloudVisualCenterIndicator(show)
+    }
+
+    fun readAloudVisualDebugState(): String {
+        return binding.contentTextView.readAloudVisualDebugState()
+    }
+
     /**
      * 设置进度
      */

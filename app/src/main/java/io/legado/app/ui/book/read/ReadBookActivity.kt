@@ -96,6 +96,7 @@ import io.legado.app.ui.book.read.config.UnderlineConfigDialog.Companion.U_COLOR
 import io.legado.app.ui.book.read.page.ContentTextView
 import io.legado.app.ui.book.read.page.ReadAloudParagraphHighlighter
 import io.legado.app.ui.book.read.page.ReadAloudVisualPositioner
+import io.legado.app.ui.book.read.page.ReadAloudVisualTrace
 import io.legado.app.ui.book.read.page.ReadView
 import io.legado.app.ui.book.read.page.entities.PageDirection
 import io.legado.app.ui.book.read.page.entities.TextChapter
@@ -1212,6 +1213,7 @@ class ReadBookActivity : BaseReadBookActivity(),
         if (ReadAloudPageChangePolicy.shouldRefreshReadViewOnPageChanged(fromReadAloud)) {
             binding.readView.onPageChange()
         }
+        updateReadAloudVisualCenterIndicator()
         handler.post {
             upSeekBarProgress()
         }
@@ -1541,10 +1543,15 @@ class ReadBookActivity : BaseReadBookActivity(),
     }
 
     private fun readAloudParagraphFromUi(next: Boolean) {
+        val readAloudPositionVisible = readAloudPositionVisibleOnScreen()
+        ReadAloudVisualTrace.record(
+            event = "manualStepRequest",
+            detail = "next=$next visualPosition=${AppConfig.readAloudVisualPosition} running=${BaseReadAloudService.isRun} visible=$readAloudPositionVisible read=${BaseReadAloudService.readAloudChapterIndex}/${BaseReadAloudService.readAloudChapterStart} dur=${ReadBook.durChapterIndex}/${ReadBook.durPageIndex}/${ReadBook.durChapterPos} visual=[${binding.readView.readAloudVisualDebugState()}]"
+        )
         if (ReadAloudVisualPositioner.shouldStepFromVisualCenter(
                 visualPositionEnabled = AppConfig.readAloudVisualPosition,
                 readAloudRunning = BaseReadAloudService.isRun,
-                readAloudPositionVisible = readAloudPositionVisibleOnScreen()
+                readAloudPositionVisible = readAloudPositionVisible
             )
         ) {
             if (readAloudFromVisualCenter()) return
@@ -1557,9 +1564,19 @@ class ReadBookActivity : BaseReadBookActivity(),
     }
 
     private fun readAloudFromVisualCenter(): Boolean {
-        val pos = binding.readView.getReadAloudCenterPos() ?: return false
+        val pos = binding.readView.getReadAloudCenterPos() ?: run {
+            ReadAloudVisualTrace.record(
+                event = "manualStepVisualCenterFail",
+                detail = "reason=noCenterLine visual=[${binding.readView.readAloudVisualDebugState()}]"
+            )
+            return false
+        }
         val (index, line) = pos
         readAloudVisualFollowPaused = false
+        ReadAloudVisualTrace.record(
+            event = "manualStepVisualCenter",
+            detail = "chapter=$index lineChapterPos=${line.chapterPosition} linePagePos=${line.pagePosition} paragraph=${line.paragraphNum} visual=[${binding.readView.readAloudVisualDebugState()}]"
+        )
         if (ReadBook.durChapterIndex != index) {
             ReadBook.openChapter(index, line.chapterPosition, false) {
                 readAloudFromLineParagraphStart(line)
@@ -1699,6 +1716,10 @@ class ReadBookActivity : BaseReadBookActivity(),
 
     private fun readAloudFromLineParagraphStart(line: TextLine) {
         val textChapter = ReadBook.curTextChapter ?: run {
+            ReadAloudVisualTrace.record(
+                event = "readFromLineFallback",
+                detail = "reason=noTextChapter lineChapterPos=${line.chapterPosition} linePagePos=${line.pagePosition}"
+            )
             ReadBook.readAloud(startPos = line.pagePosition)
             return
         }
@@ -1707,12 +1728,20 @@ class ReadBookActivity : BaseReadBookActivity(),
         }
         if (paragraph == null) {
             ReadBook.durChapterPos = line.chapterPosition
+            ReadAloudVisualTrace.record(
+                event = "readFromLineFallback",
+                detail = "reason=noParagraph chapter=${textChapter.chapter.index} lineChapterPos=${line.chapterPosition} linePagePos=${line.pagePosition}"
+            )
             ReadBook.readAloud(startPos = line.pagePosition)
             return
         }
         val pageIndex = paragraph.firstLine.textPage.index
         val startPos = paragraph.chapterPosition - textChapter.getReadLength(pageIndex)
         ReadBook.durChapterPos = paragraph.chapterPosition
+        ReadAloudVisualTrace.record(
+            event = "readFromParagraph",
+            detail = "chapter=${textChapter.chapter.index} page=$pageIndex startPos=$startPos paragraph=${paragraph.chapterPosition}-${paragraph.chapterIndices.last} line=${line.chapterPosition}/${line.pagePosition}"
+        )
         ReadBook.readAloud(pageIndex = pageIndex, startPos = startPos.coerceAtLeast(0))
     }
 
@@ -1724,6 +1753,7 @@ class ReadBookActivity : BaseReadBookActivity(),
         if (BaseReadAloudService.isPlay()) {
             readAloudVisualFollowPaused = true
         }
+        updateReadAloudVisualCenterIndicator()
     }
 
     /**
@@ -2109,6 +2139,7 @@ class ReadBookActivity : BaseReadBookActivity(),
                     clearReadAloudParagraphSpan(textChapter)
                     readView.upContent(resetPageOffset = false)
                 }
+                readView.setReadAloudVisualCenterIndicator(false)
             }
         }
         observeEvent<Boolean>(EventBus.READ_ALOUD_MANUAL_STEP) {
@@ -2159,6 +2190,10 @@ class ReadBookActivity : BaseReadBookActivity(),
     ) {
         val paragraph = findReadAloudParagraph(textChapter, chapterStart) ?: return
         val pageIndex = paragraph.firstLine.textPage.index
+        ReadAloudVisualTrace.record(
+            event = "ttsProgress",
+            detail = "chapterStart=$chapterStart read=${BaseReadAloudService.readAloudChapterIndex}/${BaseReadAloudService.readAloudChapterStart} textChapter=${textChapter.chapter.index} targetPage=$pageIndex dur=${ReadBook.durChapterIndex}/${ReadBook.durPageIndex}/${ReadBook.durChapterPos} paused=$readAloudVisualFollowPaused visual=[${binding.readView.readAloudVisualDebugState()}]"
+        )
         if (readAloudVisualFollowPaused) {
             if (ReadAloudVisualPositioner.shouldUpdateHighlightWhenFollowPaused(
                     readAloudParagraphVisible = readAloudParagraphVisibleOnScreen(
@@ -2170,6 +2205,7 @@ class ReadBookActivity : BaseReadBookActivity(),
                 updateReadAloudParagraphSpan(textChapter, paragraph)
                 binding.readView.curPage.invalidateContentView()
             }
+            updateReadAloudVisualCenterIndicator()
             return
         }
 
@@ -2182,8 +2218,19 @@ class ReadBookActivity : BaseReadBookActivity(),
         val visualPage = binding.readView.curPage.textPage
         val visualPageMatchesTarget = visualPage.chapterIndex == textChapter.chapter.index &&
                 visualPage.index == pageIndex
-        when (ReadAloudVisualPositioner.followFallback(followSucceeded, visualPageMatchesTarget)) {
-            ReadAloudVisualPositioner.FollowFallback.KeepVisualPage -> return
+        val fallback = ReadAloudVisualPositioner.followFallback(
+            followSucceeded,
+            visualPageMatchesTarget
+        )
+        ReadAloudVisualTrace.record(
+            event = "ttsProgressResult",
+            detail = "follow=$followSucceeded fallback=$fallback visualPageMatchesTarget=$visualPageMatchesTarget initial=$initialEffectiveOffset visual=[${binding.readView.readAloudVisualDebugState()}]"
+        )
+        when (fallback) {
+            ReadAloudVisualPositioner.FollowFallback.KeepVisualPage -> {
+                updateReadAloudVisualCenterIndicator()
+                return
+            }
             ReadAloudVisualPositioner.FollowFallback.RefreshCurrentPage -> {
                 upContent(resetPageOffset = false) {
                     updateReadAloudParagraphSpan(textChapter, paragraph)
@@ -2194,6 +2241,7 @@ class ReadBookActivity : BaseReadBookActivity(),
                     ) {
                         binding.readView.curPage.invalidateContentView()
                     }
+                    updateReadAloudVisualCenterIndicator()
                 }
             }
             ReadAloudVisualPositioner.FollowFallback.JumpToTargetPage -> {
@@ -2203,8 +2251,23 @@ class ReadBookActivity : BaseReadBookActivity(),
                     paragraph = paragraph,
                     initialEffectiveOffset = initialEffectiveOffset
                 )
+                updateReadAloudVisualCenterIndicator()
             }
         }
+    }
+
+    private fun updateReadAloudVisualCenterIndicator() {
+        val readAloudPositionVisible = readAloudPositionVisibleOnScreen()
+        val show = ReadAloudVisualPositioner.shouldShowVisualCenterIndicator(
+            visualPositionEnabled = AppConfig.readAloudVisualPosition,
+            readAloudPlaying = BaseReadAloudService.isPlay(),
+            readAloudPositionVisible = readAloudPositionVisible
+        )
+        binding.readView.setReadAloudVisualCenterIndicator(show)
+        ReadAloudVisualTrace.record(
+            event = "centerIndicatorEval",
+            detail = "show=$show visible=$readAloudPositionVisible visualPosition=${AppConfig.readAloudVisualPosition} playing=${BaseReadAloudService.isPlay()} visual=[${binding.readView.readAloudVisualDebugState()}]"
+        )
     }
 
     private fun readAloudNextChapterInitialOffset(

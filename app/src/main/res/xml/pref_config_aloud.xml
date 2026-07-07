@@ -48,6 +48,12 @@
             android:key="readAloudVisualPosition"
             app:iconSpaceReserved="false" />
 
+        <io.legado.app.lib.prefs.Preference
+            android:key="saveReadAloudVisualLog"
+            android:summary="@string/read_aloud_visual_debug_log_summary"
+            android:title="@string/read_aloud_visual_debug_log"
+            app:iconSpaceReserved="false" />
+
         <io.legado.app.lib.prefs.SwitchPreference
             android:defaultValue="false"
             android:key="systemMediaControlCompatibilityChange"

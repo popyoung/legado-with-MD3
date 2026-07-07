@@ -99,6 +99,14 @@ internal object ReadAloudVisualPositioner {
         return visualPositionEnabled && readAloudRunning && !readAloudPositionVisible
     }
 
+    fun shouldShowVisualCenterIndicator(
+        visualPositionEnabled: Boolean,
+        readAloudPlaying: Boolean,
+        readAloudPositionVisible: Boolean
+    ): Boolean {
+        return visualPositionEnabled && readAloudPlaying && !readAloudPositionVisible
+    }
+
     fun followFallback(
         followSucceeded: Boolean,
         visualPageMatchesTarget: Boolean
