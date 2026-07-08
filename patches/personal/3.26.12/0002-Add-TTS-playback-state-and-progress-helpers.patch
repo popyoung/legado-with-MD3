@@ -1,0 +1,822 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: popyoung <popyoung@users.noreply.github.com>
+Date: Wed, 8 Jul 2026 00:00:00 +0800
+Subject: [PATCH 2/5] Add TTS playback state and progress helpers
+
+---
+ .../main/java/io/legado/app/constant/EventBus.kt   |   1 +
+ .../java/io/legado/app/help/coroutine/Coroutine.kt |   4 +
+ .../legado/app/model/ReadAloudPageChangePolicy.kt  |  26 ++++
+ app/src/main/java/io/legado/app/model/ReadBook.kt  | 163 +++++++++++++++++---
+ .../io/legado/app/service/BaseReadAloudService.kt  | 166 ++++++++++++++++++---
+ .../io/legado/app/service/HttpReadAloudService.kt  |   1 -
+ .../io/legado/app/service/ReadAloudProgress.kt     |  27 ++++
+ .../io/legado/app/service/TTSReadAloudService.kt   |  27 +++-
+ .../app/model/ReadAloudPageChangePolicyTest.kt     |  68 +++++++++
+ .../io/legado/app/service/ReadAloudProgressTest.kt |  37 +++++
+ 10 files changed, 476 insertions(+), 44 deletions(-)
+---
+diff --git a/app/src/main/java/io/legado/app/constant/EventBus.kt b/app/src/main/java/io/legado/app/constant/EventBus.kt
+index 52c43cee8..3b0487d06 100644
+--- a/app/src/main/java/io/legado/app/constant/EventBus.kt
++++ b/app/src/main/java/io/legado/app/constant/EventBus.kt
+@@ -7,6 +7,7 @@ object EventBus {
+     const val BOOKSHELF_REFRESH = "bookshelfRefresh"
+     const val ALOUD_STATE = "aloud_state"
+     const val TTS_PROGRESS = "ttsStart"
++    const val READ_ALOUD_MANUAL_STEP = "readAloudManualStep"
+     const val AUDIO_DS = "audioDs"
+     const val READ_ALOUD_DS = "readAloudDs"
+     const val BATTERY_CHANGED = "batteryChanged"
+diff --git a/app/src/main/java/io/legado/app/help/coroutine/Coroutine.kt b/app/src/main/java/io/legado/app/help/coroutine/Coroutine.kt
+index f2bb9ed08..18a7a7ba1 100644
+--- a/app/src/main/java/io/legado/app/help/coroutine/Coroutine.kt
++++ b/app/src/main/java/io/legado/app/help/coroutine/Coroutine.kt
+@@ -163,6 +163,10 @@ class Coroutine<T>(
+         return job.invokeOnCompletion(handler)
+     }
+ 
++    suspend fun join() {
++        job.join()
++    }
++
+     fun start() {
+         job.start()
+     }
+diff --git a/app/src/main/java/io/legado/app/model/ReadAloudPageChangePolicy.kt b/app/src/main/java/io/legado/app/model/ReadAloudPageChangePolicy.kt
+new file mode 100644
+index 000000000..30f8355f2
+--- /dev/null
++++ b/app/src/main/java/io/legado/app/model/ReadAloudPageChangePolicy.kt
+@@ -0,0 +1,26 @@
++package io.legado.app.model
++
++internal object ReadAloudPageChangePolicy {
++
++    @Suppress("UNUSED_PARAMETER")
++    fun shouldRestartPausedServiceFromVisualPage(
++        readAloudRunning: Boolean,
++        readAloudPaused: Boolean,
++        visualChapterCompleted: Boolean,
++        visualChapterChanged: Boolean
++    ): Boolean {
++        return false
++    }
++
++    fun shouldRefreshReadViewOnPageChanged(
++        fromReadAloud: Boolean
++    ): Boolean {
++        return !fromReadAloud
++    }
++
++    fun shouldRefreshContentDuringChapterMove(
++        fromReadAloud: Boolean
++    ): Boolean {
++        return !fromReadAloud
++    }
++}
+diff --git a/app/src/main/java/io/legado/app/model/ReadBook.kt b/app/src/main/java/io/legado/app/model/ReadBook.kt
+index ea7c6f405..68175b28e 100644
+--- a/app/src/main/java/io/legado/app/model/ReadBook.kt
++++ b/app/src/main/java/io/legado/app/model/ReadBook.kt
+@@ -103,6 +103,25 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
+     val preDownloadSemaphore = Semaphore(2)
+ 
+     val executor = globalExecutor
++    private var readAloudPageChangeDepth = 0
++
++    fun <T> withReadAloudPageChange(block: () -> T): T {
++        readAloudPageChangeDepth++
++        return try {
++            block()
++        } finally {
++            readAloudPageChangeDepth--
++        }
++    }
++
++    suspend fun <T> withReadAloudPageChangeAwait(block: suspend () -> T): T {
++        readAloudPageChangeDepth++
++        return try {
++            block()
++        } finally {
++            readAloudPageChangeDepth--
++        }
++    }
+ 
+     private val ioScope = CoroutineScope(IO)
+ 
+@@ -431,7 +450,7 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
+             prevTextChapter = curTextChapter
+             curTextChapter = nextTextChapter
+             nextTextChapter = null
+-            if (curTextChapter == null) {
++            if (curTextChapter == null || curTextChapter?.isCompleted == false) {
+                 AppLog.putDebug("moveToNextChapter-章节未加载,开始加载")
+                 if (upContentInPlace) callBack?.upContent()
+                 loadContent(durChapterIndex, upContent, resetPageOffset = false)
+@@ -462,7 +481,7 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
+             prevTextChapter = curTextChapter
+             curTextChapter = nextTextChapter
+             nextTextChapter = null
+-            if (curTextChapter == null) {
++            if (curTextChapter == null || curTextChapter?.isCompleted == false) {
+                 AppLog.putDebug("moveToNextChapter-章节未加载,开始加载")
+                 if (upContentInPlace) callBack?.upContentAwait()
+                 loadContentAwait(durChapterIndex, upContent, resetPageOffset = false)
+@@ -510,8 +529,42 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
+         }
+     }
+ 
+-    fun skipToPage(index: Int, success: (() -> Unit)? = null) {
+-        durChapterPos = curTextChapter?.getReadLength(index) ?: index
++    suspend fun moveToPrevChapterAwait(
++        upContent: Boolean,
++        toLast: Boolean = true,
++        upContentInPlace: Boolean = true
++    ): Boolean {
++        if (durChapterIndex > 0) {
++            durChapterPos = if (toLast) prevTextChapter?.lastReadLength ?: Int.MAX_VALUE else 0
++            durChapterIndex--
++            clearExpiredChapterLoadingJob()
++            nextTextChapter = curTextChapter
++            curTextChapter = prevTextChapter
++            prevTextChapter = null
++            if (curTextChapter == null || curTextChapter?.isCompleted == false) {
++                if (upContentInPlace) callBack?.upContentAwait()
++                loadContentAwait(durChapterIndex, upContent, resetPageOffset = false)
++            } else if (upContent && upContentInPlace) {
++                callBack?.upContentAwait()
++            }
++            loadContent(durChapterIndex.minus(1), upContent, false)
++            saveRead()
++            callBack?.upMenuView()
++            curPageChanged()
++            return true
++        } else {
++            return false
++        }
++    }
++
++    fun skipToPage(
++        index: Int,
++        chapterPos: Int? = null,
++        success: (() -> Unit)? = null
++    ) {
++        durChapterPos = chapterPos?.coerceAtLeast(0)
++            ?: curTextChapter?.getReadLength(index)
++            ?: index
+         callBack?.upContent {
+             success?.invoke()
+         }
+@@ -519,9 +572,42 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
+         saveRead(true)
+     }
+ 
+-    fun setPageIndex(index: Int) {
++    fun alignToReadAloudChapter(
++        textChapter: TextChapter,
++        chapterPos: Int,
++        preloadAdjacent: Boolean = true
++    ) {
++        val chapterIndex = textChapter.chapter.index
++        if (chapterIndex !in 0 until simulatedChapterSize) return
++        durChapterPos = chapterPos.coerceAtLeast(0)
++        if (durChapterIndex == chapterIndex && curTextChapter === textChapter) {
++            return
++        }
++        val nearbyChapters = listOfNotNull(prevTextChapter, curTextChapter, nextTextChapter)
++        durChapterIndex = chapterIndex
++        msg = null
++        curTextChapter = textChapter
++        prevTextChapter = nearbyChapters.firstOrNull {
++            it !== textChapter && it.isCompleted && it.chapter.index == chapterIndex - 1
++        }
++        nextTextChapter = nearbyChapters.firstOrNull {
++            it !== textChapter && it.isCompleted && it.chapter.index == chapterIndex + 1
++        }
++        clearExpiredChapterLoadingJob()
++        if (!preloadAdjacent) return
++        if (prevTextChapter == null) {
++            loadContent(chapterIndex - 1, upContent = false, resetPageOffset = false)
++        }
++        if (nextTextChapter == null) {
++            loadContent(chapterIndex + 1, upContent = false, resetPageOffset = false)
++        }
++    }
++
++    fun setPageIndex(index: Int, chapterPos: Int? = null) {
+         recycleRecorders(durPageIndex, index)
+-        durChapterPos = curTextChapter?.getReadLength(index) ?: index
++        durChapterPos = chapterPos?.coerceAtLeast(0)
++            ?: curTextChapter?.getReadLength(index)
++            ?: index
+         saveRead(true)
+         curPageChanged(true)
+     }
+@@ -563,9 +649,16 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
+      * 当前页面变化
+      */
+     private fun curPageChanged(pageChanged: Boolean = false) {
+-        callBack?.pageChanged()
++        val fromReadAloud = readAloudPageChangeDepth > 0
++        callBack?.pageChanged(fromReadAloud)
+         curTextChapter?.let {
+-            if (BaseReadAloudService.isRun && it.isCompleted) {
++            if (ReadAloudPageChangePolicy.shouldRestartPausedServiceFromVisualPage(
++                    readAloudRunning = BaseReadAloudService.isRun,
++                    readAloudPaused = BaseReadAloudService.pause,
++                    visualChapterCompleted = it.isCompleted,
++                    visualChapterChanged = it.chapter.index != BaseReadAloudService.readAloudChapterIndex
++                )
++            ) {
+                 val scrollPageAnim = pageAnim() == 3
+                 if (scrollPageAnim && pageChanged) {
+                     ReadAloud.pause(appCtx)
+@@ -581,11 +674,15 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
+     /**
+      * 朗读
+      */
+-    fun readAloud(play: Boolean = true, startPos: Int = 0) {
++    fun readAloud(
++        play: Boolean = true,
++        pageIndex: Int = durPageIndex,
++        startPos: Int = 0
++    ) {
+         book ?: return
+         val textChapter = curTextChapter ?: return
+         if (textChapter.isCompleted) {
+-            ReadAloud.play(appCtx, play, startPos = startPos)
++            ReadAloud.play(appCtx, play, pageIndex = pageIndex, startPos = startPos)
+         }
+     }
+ 
+@@ -702,24 +799,46 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
+         resetPageOffset: Boolean = false,
+         success: (() -> Unit)? = null
+     ) = withContext(IO) {
+-        if (addLoading(index)) {
+-            try {
+-                val book = book!!
+-                val chapter = appDb.bookChapterDao.getChapter(book.bookUrl, index)!!
+-                val content = BookHelp.getContent(book, chapter) ?: downloadAwait(chapter)
+-                contentLoadFinishAwait(book, chapter, content, upContent, resetPageOffset)
+-                success?.invoke()
+-            } catch (e: Exception) {
++        if (!addLoading(index)) {
++            waitChapterLoading(index)
++            return@withContext
++        }
++        try {
++            val book = book!!
++            val chapter = appDb.bookChapterDao.getChapter(book.bookUrl, index)!!
++            val content = BookHelp.getContent(book, chapter) ?: downloadAwait(chapter)
++            contentLoadFinishAwait(book, chapter, content, upContent, resetPageOffset)
++            success?.invoke()
++        } catch (e: Exception) {
+                 AppLog.put("加载正文出错\n${e.localizedMessage}")
+-            } finally {
+-                removeLoading(index)
+-            }
++        } finally {
++            removeLoading(index)
+         }
+     }
+ 
+     /**
+      * 下载正文
+      */
++    private suspend fun waitChapterLoading(index: Int) {
++        try {
++            withTimeout(30_000L) {
++                while (true) {
++                    chapterLoadingJobs[index]?.let {
++                        it.join()
++                        return@withTimeout
++                    }
++                    val isLoading = synchronized(this@ReadBook) {
++                        loadingChapters.contains(index)
++                    }
++                    if (!isLoading) return@withTimeout
++                    delay(50)
++                }
++            }
++        } catch (_: TimeoutCancellationException) {
++            AppLog.put("Wait chapter loading timeout for chapter $index")
++        }
++    }
++
+     private suspend fun downloadIndex(index: Int) {
+         if (index < 0) return
+         if (index > chapterSize - 1) {
+@@ -1156,7 +1275,7 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
+             success: (() -> Unit)? = null
+         )
+ 
+-        fun pageChanged()
++        fun pageChanged(fromReadAloud: Boolean)
+ 
+         fun contentLoadFinish()
+ 
+diff --git a/app/src/main/java/io/legado/app/service/BaseReadAloudService.kt b/app/src/main/java/io/legado/app/service/BaseReadAloudService.kt
+index b3f40ff1c..afbbf80b4 100644
+--- a/app/src/main/java/io/legado/app/service/BaseReadAloudService.kt
++++ b/app/src/main/java/io/legado/app/service/BaseReadAloudService.kt
+@@ -41,9 +41,11 @@ import io.legado.app.help.glide.ImageLoader
+ import io.legado.app.lib.permission.Permissions
+ import io.legado.app.lib.permission.PermissionsCompat
+ import io.legado.app.model.ReadAloud
++import io.legado.app.model.ReadAloudPageChangePolicy
+ import io.legado.app.model.ReadBook
+ import io.legado.app.receiver.MediaButtonReceiver
+ import io.legado.app.ui.book.read.ReadBookActivity
++import io.legado.app.ui.book.read.page.ReadAloudVisualPositioner
+ import io.legado.app.ui.book.read.page.entities.TextChapter
+ import io.legado.app.utils.LogUtils
+ import io.legado.app.utils.activityPendingIntent
+@@ -84,6 +86,14 @@ abstract class BaseReadAloudService : BaseService(),
+         var timeMinute: Int = 0
+             private set
+ 
++        @JvmStatic
++        var readAloudChapterIndex: Int = -1
++            private set
++
++        @JvmStatic
++        var readAloudChapterStart: Int = 0
++            private set
++
+         fun isPlay(): Boolean {
+             return isRun && !pause
+         }
+@@ -132,6 +142,7 @@ abstract class BaseReadAloudService : BaseService(),
+     var paragraphStartPos = 0
+     var readAloudByPage = false
+         private set
++    private var rememberedReadAloudPosition: ReadAloudProgress.Position? = null
+ 
+     private val broadcastReceiver = object : BroadcastReceiver() {
+         override fun onReceive(context: Context, intent: Intent) {
+@@ -194,6 +205,8 @@ abstract class BaseReadAloudService : BaseService(),
+         }
+         isRun = false
+         pause = true
++        readAloudChapterIndex = -1
++        readAloudChapterStart = 0
+         abandonFocus()
+         unregisterReceiver(broadcastReceiver)
+         postEvent(EventBus.ALOUD_STATE, Status.STOP)
+@@ -265,7 +278,9 @@ abstract class BaseReadAloudService : BaseService(),
+                             textChapter.paragraphs[nowSpeak].chapterPosition
+                 }
+             }
++            updateReadAloudPosition(readAloudNumber + 1)
+             paragraphStartPos = pos
++            rememberCurrentReadAloudPosition()
+             launch(Main) {
+                 upMediaMetadata()
+                 if (play) play() else pageChanged = true
+@@ -311,6 +326,7 @@ abstract class BaseReadAloudService : BaseService(),
+     @SuppressLint("WakelockTimeout")
+     @CallSuper
+     open fun resumeReadAloud() {
++        restoreReadBookToReadAloudPosition()
+         resumeReadAloudInternal()
+     }
+ 
+@@ -326,10 +342,55 @@ abstract class BaseReadAloudService : BaseService(),
+     abstract fun upSpeechRate(reset: Boolean = false)
+ 
+     fun upTtsProgress(progress: Int) {
++        updateReadAloudPosition(progress)
+         postEvent(EventBus.TTS_PROGRESS, progress)
+     }
+ 
++    protected fun rememberCurrentReadAloudPosition() {
++        rememberReadAloudPosition(
++            readAloudNumber = readAloudNumber,
++            paragraphStartPos = paragraphStartPos,
++            nowSpeak = nowSpeak,
++            pageIndex = pageIndex
++        )
++    }
++
++    protected fun rememberReadAloudPosition(
++        readAloudNumber: Int,
++        paragraphStartPos: Int,
++        nowSpeak: Int,
++        pageIndex: Int
++    ) {
++        rememberReadAloudPosition(
++            ReadAloudProgress.Position(
++                readAloudNumber = readAloudNumber,
++                paragraphStartPos = paragraphStartPos,
++                nowSpeak = nowSpeak,
++                pageIndex = pageIndex
++            )
++        )
++    }
++
++    private fun rememberReadAloudPosition(position: ReadAloudProgress.Position) {
++        rememberedReadAloudPosition = position
++        updateReadAloudPosition(position.readAloudNumber + 1)
++    }
++
++    protected fun applyRememberedReadAloudPosition() {
++        val position = rememberedReadAloudPosition ?: return
++        readAloudNumber = position.readAloudNumber
++        paragraphStartPos = position.paragraphStartPos
++        nowSpeak = position.nowSpeak
++        pageIndex = position.pageIndex
++    }
++
++    private fun updateReadAloudPosition(progress: Int) {
++        readAloudChapterIndex = textChapter?.chapter?.index ?: -1
++        readAloudChapterStart = progress.coerceAtLeast(0)
++    }
++
+     private fun prevP() {
++        postEvent(EventBus.READ_ALOUD_MANUAL_STEP, true)
+         if (nowSpeak > 0) {
+             playStop()
+             do {
+@@ -342,21 +403,20 @@ abstract class BaseReadAloudService : BaseService(),
+                     val paragraphs = it.getParagraphs(true)
+                     if (!paragraphs[nowSpeak].isParagraphEnd) readAloudNumber++
+                 }
+-                if (readAloudNumber < it.getReadLength(pageIndex)) {
+-                    pageIndex--
+-                    ReadBook.moveToPrevPage()
+-                }
++                alignReadBookToReadAloudChapter()
++                syncReadBookPageToReadAloudPosition(it)
+             }
+             upTtsProgress(readAloudNumber + 1)
++            rememberCurrentReadAloudPosition()
+             upMediaMetadata(showContent = true)
+             play()
+         } else {
+-            toLast = true
+-            ReadBook.moveToPrevChapter(true)
++            moveToPrevChapterAndRead(toLast = true)
+         }
+     }
+ 
+     private fun nextP() {
++        postEvent(EventBus.READ_ALOUD_MANUAL_STEP, true)
+         if (nowSpeak < contentList.size - 1) {
+             playStop()
+             readAloudNumber += contentList[nowSpeak].length.plus(1) - paragraphStartPos
+@@ -367,14 +427,11 @@ abstract class BaseReadAloudService : BaseService(),
+                     val paragraphs = it.getParagraphs(true)
+                     if (!paragraphs[nowSpeak].isParagraphEnd) readAloudNumber--
+                 }
+-                if (pageIndex + 1 < it.pageSize
+-                    && readAloudNumber >= it.getReadLength(pageIndex + 1)
+-                ) {
+-                    pageIndex++
+-                    ReadBook.moveToNextPage()
+-                }
++                alignReadBookToReadAloudChapter()
++                syncReadBookPageToReadAloudPosition(it)
+             }
+             upTtsProgress(readAloudNumber + 1)
++            rememberCurrentReadAloudPosition()
+             upMediaMetadata(showContent = true)
+             play()
+         } else {
+@@ -382,6 +439,48 @@ abstract class BaseReadAloudService : BaseService(),
+         }
+     }
+ 
++    private fun alignReadBookToReadAloudChapter(preloadAdjacent: Boolean = true) {
++        val textChapter = textChapter ?: return
++        ReadBook.alignToReadAloudChapter(textChapter, readAloudNumber, preloadAdjacent)
++    }
++
++    private fun syncReadBookPageToReadAloudPosition(textChapter: TextChapter) {
++        val targetPageIndex = textChapter.getPageIndexByCharIndex(readAloudNumber)
++        if (targetPageIndex < 0) {
++            return
++        }
++        val targetPageChanged = targetPageIndex != pageIndex
++        pageIndex = targetPageIndex
++        if (!ReadAloudVisualPositioner.shouldSyncReadBookPageBeforeManualStepProgress(
++                scrollPageAnim = ReadBook.pageAnim() == 3,
++                targetPageChanged = targetPageChanged
++            )
++        ) {
++            return
++        }
++        ReadBook.withReadAloudPageChange {
++            ReadBook.skipToPage(pageIndex, chapterPos = readAloudNumber)
++        }
++    }
++
++    private fun restoreReadBookToReadAloudPosition() {
++        val textChapter = textChapter ?: return
++        ReadBook.withReadAloudPageChange {
++            ReadBook.alignToReadAloudChapter(textChapter, readAloudNumber)
++        }
++        upTtsProgress(readAloudNumber + 1)
++        rememberCurrentReadAloudPosition()
++    }
++
++    private fun restartReadAloudFromReadBook(toLastChapterEnd: Boolean = false) {
++        val pageIndex = if (toLastChapterEnd) {
++            ReadBook.curTextChapter?.lastIndex ?: ReadBook.durPageIndex
++        } else {
++            ReadBook.durPageIndex
++        }.coerceAtLeast(0)
++        newReadAloud(play = true, pageIndex = pageIndex, startPos = 0)
++    }
++
+     private fun setTimer(minute: Int) {
+         timeMinute = minute
+         doDs()
+@@ -702,17 +801,48 @@ abstract class BaseReadAloudService : BaseService(),
+     abstract fun aloudServicePendingIntent(actionStr: String): PendingIntent?
+ 
+     open fun prevChapter() {
+-        toLast = false
+-        resumeReadAloudInternal()
+-        ReadBook.moveToPrevChapter(true, toLast = false)
++        moveToPrevChapterAndRead(toLast = false)
+     }
+ 
+     open fun nextChapter() {
+         ReadBook.upReadTime()
+         AppLog.putDebug("${ReadBook.curTextChapter?.chapter?.title} 朗读结束跳转下一章并朗读")
+-        resumeReadAloudInternal()
+-        if (!ReadBook.moveToNextChapter(true)) {
+-            stopSelf()
++        execute {
++            resumeReadAloudInternal()
++            val moved = ReadBook.withReadAloudPageChangeAwait {
++                alignReadBookToReadAloudChapter(preloadAdjacent = false)
++                ReadBook.moveToNextChapterAwait(
++                    upContent = ReadAloudPageChangePolicy.shouldRefreshContentDuringChapterMove(
++                        fromReadAloud = true
++                    ),
++                    upContentInPlace = false
++                )
++            }
++            if (moved) {
++                restartReadAloudFromReadBook()
++            } else {
++                stopSelf()
++            }
++        }
++    }
++
++    private fun moveToPrevChapterAndRead(toLast: Boolean) {
++        this.toLast = toLast
++        execute {
++            resumeReadAloudInternal()
++            val moved = ReadBook.withReadAloudPageChangeAwait {
++                alignReadBookToReadAloudChapter(preloadAdjacent = false)
++                ReadBook.moveToPrevChapterAwait(
++                    upContent = ReadAloudPageChangePolicy.shouldRefreshContentDuringChapterMove(
++                        fromReadAloud = true
++                    ),
++                    toLast = toLast,
++                    upContentInPlace = false
++                )
++            }
++            if (moved) {
++                restartReadAloudFromReadBook(toLastChapterEnd = toLast)
++            }
+         }
+     }
+ 
+diff --git a/app/src/main/java/io/legado/app/service/HttpReadAloudService.kt b/app/src/main/java/io/legado/app/service/HttpReadAloudService.kt
+index 6c83ec29b..3657571a5 100644
+--- a/app/src/main/java/io/legado/app/service/HttpReadAloudService.kt
++++ b/app/src/main/java/io/legado/app/service/HttpReadAloudService.kt
+@@ -557,7 +557,6 @@ class HttpReadAloudService : BaseReadAloudService(),
+                     && readAloudNumber + i > textChapter.getReadLength(pageIndex + 1)
+                 ) {
+                     pageIndex++
+-                    ReadBook.moveToNextPage()
+                     upTtsProgress(readAloudNumber + i.toInt())
+                 }
+                 delay(sleep)
+diff --git a/app/src/main/java/io/legado/app/service/ReadAloudProgress.kt b/app/src/main/java/io/legado/app/service/ReadAloudProgress.kt
+new file mode 100644
+index 000000000..95c5acf56
+--- /dev/null
++++ b/app/src/main/java/io/legado/app/service/ReadAloudProgress.kt
+@@ -0,0 +1,27 @@
++package io.legado.app.service
++
++internal object ReadAloudProgress {
++
++    data class Position(
++        val readAloudNumber: Int,
++        val paragraphStartPos: Int,
++        val nowSpeak: Int,
++        val pageIndex: Int
++    )
++
++    fun fromRangeStart(
++        readAloudNumber: Int,
++        paragraphStartPos: Int,
++        rangeStart: Int,
++        nowSpeak: Int,
++        pageIndex: Int
++    ): Position {
++        val safeRangeStart = rangeStart.coerceAtLeast(0)
++        return Position(
++            readAloudNumber = readAloudNumber.coerceAtLeast(0) + safeRangeStart,
++            paragraphStartPos = paragraphStartPos.coerceAtLeast(0) + safeRangeStart,
++            nowSpeak = nowSpeak.coerceAtLeast(0),
++            pageIndex = pageIndex.coerceAtLeast(0)
++        )
++    }
++}
+diff --git a/app/src/main/java/io/legado/app/service/TTSReadAloudService.kt b/app/src/main/java/io/legado/app/service/TTSReadAloudService.kt
+index bf93e315f..20943d36b 100644
+--- a/app/src/main/java/io/legado/app/service/TTSReadAloudService.kt
++++ b/app/src/main/java/io/legado/app/service/TTSReadAloudService.kt
+@@ -178,6 +178,7 @@ class TTSReadAloudService : BaseReadAloudService(), TextToSpeech.OnInitListener
+      * 恢复朗读
+      */
+     override fun resumeReadAloud() {
++        applyRememberedReadAloudPosition()
+         super.resumeReadAloud()
+         play()
+     }
+@@ -199,8 +200,8 @@ class TTSReadAloudService : BaseReadAloudService(), TextToSpeech.OnInitListener
+                     && readAloudNumber + 1 > it.getReadLength(pageIndex + 1)
+                 ) {
+                     pageIndex++
+-                    ReadBook.moveToNextPage()
+                 }
++                rememberCurrentReadAloudPosition()
+                 upTtsProgress(readAloudNumber + 1)
+                 upMediaMetadata(showContent = true)
+             }
+@@ -217,12 +218,31 @@ class TTSReadAloudService : BaseReadAloudService(), TextToSpeech.OnInitListener
+                 "onRangeStart nowSpeak:$nowSpeak pageIndex:$pageIndex utteranceId:$utteranceId start:$start end:$end frame:$frame"
+             LogUtils.d(TAG, msg)
+             textChapter?.let {
++                val position = ReadAloudProgress.fromRangeStart(
++                    readAloudNumber = readAloudNumber,
++                    paragraphStartPos = paragraphStartPos,
++                    rangeStart = start,
++                    nowSpeak = nowSpeak,
++                    pageIndex = pageIndex
++                )
+                 if (pageIndex + 1 < it.pageSize
+                     && readAloudNumber + start > it.getReadLength(pageIndex + 1)
+                 ) {
+                     pageIndex++
+-                    ReadBook.moveToNextPage()
++                    rememberReadAloudPosition(
++                        readAloudNumber = position.readAloudNumber,
++                        paragraphStartPos = position.paragraphStartPos,
++                        nowSpeak = position.nowSpeak,
++                        pageIndex = pageIndex
++                    )
+                     upTtsProgress(readAloudNumber + start)
++                } else {
++                    rememberReadAloudPosition(
++                        readAloudNumber = position.readAloudNumber,
++                        paragraphStartPos = position.paragraphStartPos,
++                        nowSpeak = position.nowSpeak,
++                        pageIndex = position.pageIndex
++                    )
+                 }
+             }
+         }
+@@ -246,6 +266,7 @@ class TTSReadAloudService : BaseReadAloudService(), TextToSpeech.OnInitListener
+                     return
+                 }
+             } while (contentList[nowSpeak].matches(AppPattern.notReadAloudRegex))
++            rememberCurrentReadAloudPosition()
+         }
+ 
+         @Deprecated("Deprecated in Java")
+@@ -260,4 +281,4 @@ class TTSReadAloudService : BaseReadAloudService(), TextToSpeech.OnInitListener
+         return servicePendingIntent<TTSReadAloudService>(actionStr)
+     }
+ 
+-}
+\ No newline at end of file
++}
+diff --git a/app/src/test/java/io/legado/app/model/ReadAloudPageChangePolicyTest.kt b/app/src/test/java/io/legado/app/model/ReadAloudPageChangePolicyTest.kt
+new file mode 100644
+index 000000000..3859e0ed2
+--- /dev/null
++++ b/app/src/test/java/io/legado/app/model/ReadAloudPageChangePolicyTest.kt
+@@ -0,0 +1,68 @@
++package io.legado.app.model
++
++import org.junit.Assert.assertFalse
++import org.junit.Assert.assertTrue
++import org.junit.Test
++
++class ReadAloudPageChangePolicyTest {
++
++    @Test
++    fun pausedPageChangeDoesNotRestartReadAloudFromVisualPage() {
++        val shouldRestart = ReadAloudPageChangePolicy.shouldRestartPausedServiceFromVisualPage(
++            readAloudRunning = true,
++            readAloudPaused = true,
++            visualChapterCompleted = true,
++            visualChapterChanged = false
++        )
++
++        assertFalse(shouldRestart)
++    }
++
++    @Test
++    fun pausedCrossChapterPageChangeDoesNotRestartReadAloudFromVisualPage() {
++        val shouldRestart = ReadAloudPageChangePolicy.shouldRestartPausedServiceFromVisualPage(
++            readAloudRunning = true,
++            readAloudPaused = true,
++            visualChapterCompleted = true,
++            visualChapterChanged = true
++        )
++
++        assertFalse(shouldRestart)
++    }
++
++    @Test
++    fun readAloudPageChangeDoesNotRefreshReadViewBeforeProgress() {
++        val shouldRefresh = ReadAloudPageChangePolicy.shouldRefreshReadViewOnPageChanged(
++            fromReadAloud = true
++        )
++
++        assertFalse(shouldRefresh)
++    }
++
++    @Test
++    fun visualPageChangeRefreshesReadView() {
++        val shouldRefresh = ReadAloudPageChangePolicy.shouldRefreshReadViewOnPageChanged(
++            fromReadAloud = false
++        )
++
++        assertTrue(shouldRefresh)
++    }
++
++    @Test
++    fun readAloudChapterMoveDoesNotRefreshContentBeforeProgress() {
++        val shouldRefresh = ReadAloudPageChangePolicy.shouldRefreshContentDuringChapterMove(
++            fromReadAloud = true
++        )
++
++        assertFalse(shouldRefresh)
++    }
++
++    @Test
++    fun visualChapterMoveRefreshesContent() {
++        val shouldRefresh = ReadAloudPageChangePolicy.shouldRefreshContentDuringChapterMove(
++            fromReadAloud = false
++        )
++
++        assertTrue(shouldRefresh)
++    }
++}
+diff --git a/app/src/test/java/io/legado/app/service/ReadAloudProgressTest.kt b/app/src/test/java/io/legado/app/service/ReadAloudProgressTest.kt
+new file mode 100644
+index 000000000..895dffde7
+--- /dev/null
++++ b/app/src/test/java/io/legado/app/service/ReadAloudProgressTest.kt
+@@ -0,0 +1,37 @@
++package io.legado.app.service
++
++import org.junit.Assert.assertEquals
++import org.junit.Test
++
++class ReadAloudProgressTest {
++
++    @Test
++    fun rangeStartKeepsResumePositionInsideCurrentParagraph() {
++        val position = ReadAloudProgress.fromRangeStart(
++            readAloudNumber = 1200,
++            paragraphStartPos = 80,
++            rangeStart = 35,
++            nowSpeak = 4,
++            pageIndex = 7
++        )
++
++        assertEquals(1235, position.readAloudNumber)
++        assertEquals(115, position.paragraphStartPos)
++        assertEquals(4, position.nowSpeak)
++        assertEquals(7, position.pageIndex)
++    }
++
++    @Test
++    fun negativeRangeStartDoesNotMoveResumePositionBackwards() {
++        val position = ReadAloudProgress.fromRangeStart(
++            readAloudNumber = 1200,
++            paragraphStartPos = 80,
++            rangeStart = -20,
++            nowSpeak = 4,
++            pageIndex = 7
++        )
++
++        assertEquals(1200, position.readAloudNumber)
++        assertEquals(80, position.paragraphStartPos)
++    }
++}

@@ -43,10 +43,11 @@ git format-patch --base=upstream/3.27 -o patches/personal/3.27 upstream/3.27..<l
 
 Recommended patch topics:
 
-- GitHub Actions build workflow
-- TTS visual following and highlight behavior
-- TTS manual previous/next paragraph positioning
-- Version, package, or release-specific build configuration
+- GitHub Actions build workflow, version, package, or release-specific build configuration
+- TTS playback state, progress, pause/resume, and chapter transition helpers
+- TTS visual following, highlight, page rendering, and read-position anchoring
+- TTS manual previous/next paragraph positioning and visual-position settings
+- TTS visual diagnostics and log export
 
 Avoid one large patch. Small patches make conflicts easier to isolate.
 Avoid chronological bug-fix patches. When a later fix belongs to an existing

@@ -116,6 +116,36 @@ class ReadAloudVisualPositionerTest {
     }
 
     @Test
+    fun activePositiveFollowOffsetScansPreviousVisiblePage() {
+        val firstRelativePage = ReadAloudVisualPositioner.firstVisibleRelativePage(
+            readAloudActive = true,
+            currentOffset = 613f
+        )
+
+        assertEquals(-1, firstRelativePage)
+    }
+
+    @Test
+    fun inactivePositiveOffsetKeepsCurrentPageAsFirstVisiblePage() {
+        val firstRelativePage = ReadAloudVisualPositioner.firstVisibleRelativePage(
+            readAloudActive = false,
+            currentOffset = 613f
+        )
+
+        assertEquals(0, firstRelativePage)
+    }
+
+    @Test
+    fun activeNonPositiveOffsetKeepsCurrentPageAsFirstVisiblePage() {
+        val firstRelativePage = ReadAloudVisualPositioner.firstVisibleRelativePage(
+            readAloudActive = true,
+            currentOffset = 0f
+        )
+
+        assertEquals(0, firstRelativePage)
+    }
+
+    @Test
     fun relativePageTopUsesContinuousVisualCoordinates() {
         assertEquals(
             -900f,

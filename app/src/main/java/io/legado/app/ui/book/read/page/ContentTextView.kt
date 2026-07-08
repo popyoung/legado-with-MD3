@@ -198,6 +198,9 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
     }
 
     private fun relativeDrawOffset(relativePos: Int): Float {
+        if (relativePos < 0) {
+            return pageOffset - (relativeDrawPageOrNull(relativePos)?.height ?: 0f)
+        }
         var offset = pageOffset.toFloat()
         if (relativePos >= 1) {
             offset += textPage.height
@@ -214,6 +217,14 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
             readAloudOffset = readAloudPageOffset.toFloat(),
             readAloudActive = readAloudFollowActive
         )
+    }
+
+    private fun readAloudVisibleRelativePositions(): IntRange {
+        val firstRelativePage = ReadAloudVisualPositioner.firstVisibleRelativePage(
+            readAloudActive = readAloudFollowActive,
+            currentOffset = drawContentOffset(0)
+        )
+        return firstRelativePage..2
     }
 
     private fun drawReadAloudFollowPages(canvas: Canvas, currentOffset: Float) {
@@ -547,7 +558,7 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
     }
 
     fun readAloudVisualDebugState(): String {
-        return "textPage=${textPage.chapterIndex}/${textPage.index} pageSize=${textPage.pageSize} pageOffset=$pageOffset readAloudOffset=$readAloudPageOffset active=$readAloudFollowActive indicator=$readAloudVisualCenterIndicator content0=${drawContentOffset(0)} content1=${drawContentOffset(1)} content2=${drawContentOffset(2)}"
+        return "textPage=${textPage.chapterIndex}/${textPage.index} pageSize=${textPage.pageSize} pageOffset=$pageOffset readAloudOffset=$readAloudPageOffset active=$readAloudFollowActive indicator=$readAloudVisualCenterIndicator content-1=${drawContentOffset(-1)} content0=${drawContentOffset(0)} content1=${drawContentOffset(1)} content2=${drawContentOffset(2)}"
     }
 
     /**
@@ -856,7 +867,7 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
 
     fun getReadAloudPos(): Pair<Int, TextLine>? {
         var relativeOffset: Float
-        for (relativePos in 0..2) {
+        for (relativePos in readAloudVisibleRelativePositions()) {
             relativeOffset = contentOffset(relativePos)
             if (relativePos > 0) {
                 //滚动翻页
@@ -884,7 +895,7 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
         var nearestLine: Pair<Int, TextLine>? = null
         var nearestDistance = Float.MAX_VALUE
         var relativeOffset: Float
-        for (relativePos in 0..2) {
+        for (relativePos in readAloudVisibleRelativePositions()) {
             relativeOffset = drawContentOffset(relativePos)
             if (relativePos > 0) {
                 if (!callBack.isScroll) break
@@ -917,7 +928,7 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
 
     fun containsVisibleChapterPosition(chapterIndex: Int, chapterPosition: Int): Boolean {
         var relativeOffset: Float
-        for (relativePos in 0..2) {
+        for (relativePos in readAloudVisibleRelativePositions()) {
             relativeOffset = drawContentOffset(relativePos)
             if (relativePos > 0) {
                 if (!callBack.isScroll) break
@@ -936,7 +947,7 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
 
     fun containsVisibleChapterLastPage(chapterIndex: Int): Boolean {
         var relativeOffset: Float
-        for (relativePos in 0..2) {
+        for (relativePos in readAloudVisibleRelativePositions()) {
             relativeOffset = drawContentOffset(relativePos)
             if (relativePos > 0) {
                 if (!callBack.isScroll) break

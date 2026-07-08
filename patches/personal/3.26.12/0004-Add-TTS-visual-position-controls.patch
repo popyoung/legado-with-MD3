@@ -1,0 +1,181 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: popyoung <popyoung@users.noreply.github.com>
+Date: Wed, 8 Jul 2026 00:00:00 +0800
+Subject: [PATCH 4/5] Add TTS visual position controls
+
+---
+ app/src/main/java/io/legado/app/constant/PreferKey.kt       |  1 +
+ app/src/main/java/io/legado/app/help/config/AppConfig.kt    |  3 +++
+ .../legado/app/ui/book/read/config/ReadAloudConfigDialog.kt |  9 +++++++++
+ .../io/legado/app/ui/book/read/config/ReadAloudDialog.kt    |  8 +++++---
+ app/src/main/res/values-zh-rCN/strings.xml                  |  2 ++
+ app/src/main/res/values-zh-rHK/strings.xml                  |  2 ++
+ app/src/main/res/values-zh-rTW/strings.xml                  |  2 ++
+ app/src/main/res/values/strings.xml                         |  4 ++++
+ app/src/main/res/xml/pref_config_aloud.xml                  | 13 +++++++++++++
+ 9 files changed, 41 insertions(+), 3 deletions(-)
+---
+diff --git a/app/src/main/java/io/legado/app/constant/PreferKey.kt b/app/src/main/java/io/legado/app/constant/PreferKey.kt
+index 050a0fb05..f70e1e602 100644
+--- a/app/src/main/java/io/legado/app/constant/PreferKey.kt
++++ b/app/src/main/java/io/legado/app/constant/PreferKey.kt
+@@ -39,6 +39,7 @@ object PreferKey {
+     const val hideNavigationBar = "hideNavigationBar"
+     const val precisionSearch = "precisionSearch"
+     const val readAloudByPage = "readAloudByPage"
++    const val readAloudVisualPosition = "readAloudVisualPosition"
+     const val ttsEngine = "appTtsEngine"
+     const val ttsFollowSys = "ttsFollowSys"
+     const val ttsSpeechRate = "ttsSpeechRate"
+diff --git a/app/src/main/java/io/legado/app/help/config/AppConfig.kt b/app/src/main/java/io/legado/app/help/config/AppConfig.kt
+index 8476d4395..7a7cd1cc7 100644
+--- a/app/src/main/java/io/legado/app/help/config/AppConfig.kt
++++ b/app/src/main/java/io/legado/app/help/config/AppConfig.kt
+@@ -350,6 +350,9 @@ object AppConfig : SharedPreferences.OnSharedPreferenceChangeListener {
+     val noAnimScrollPage: Boolean
+         get() = appCtx.getPrefBoolean(PreferKey.noAnimScrollPage, false)
+ 
++    val readAloudVisualPosition: Boolean
++        get() = appCtx.getPrefBoolean(PreferKey.readAloudVisualPosition, false)
++
+     const val defaultSpeechRate = 5
+ 
+     var ttsSpeechRate: Int
+diff --git a/app/src/main/java/io/legado/app/ui/book/read/config/ReadAloudConfigDialog.kt b/app/src/main/java/io/legado/app/ui/book/read/config/ReadAloudConfigDialog.kt
+index 8d15ab380..30d7fc410 100644
+--- a/app/src/main/java/io/legado/app/ui/book/read/config/ReadAloudConfigDialog.kt
++++ b/app/src/main/java/io/legado/app/ui/book/read/config/ReadAloudConfigDialog.kt
+@@ -8,6 +8,7 @@ import android.os.Bundle
+ import android.view.LayoutInflater
+ import android.view.View
+ import android.view.ViewGroup
++import android.widget.Toast
+ import android.widget.LinearLayout
+ import androidx.preference.ListPreference
+ import androidx.preference.Preference
+@@ -23,6 +24,7 @@ import io.legado.app.lib.prefs.SwitchPreference
+ import io.legado.app.lib.prefs.fragment.PreferenceFragment
+ import io.legado.app.model.ReadAloud
+ import io.legado.app.service.BaseReadAloudService
++import io.legado.app.ui.book.read.page.ReadAloudVisualTrace
+ import io.legado.app.ui.widget.number.NumberPickerDialog
+ import io.legado.app.utils.GSON
+ import io.legado.app.utils.StringUtils
+@@ -143,6 +145,13 @@ class ReadAloudConfigDialog : BasePrefDialogFragment() {
+ 
+                 PreferKey.ttsEngine -> showDialogFragment(SpeakEngineDialog())
+                 "sysTtsConfig" -> IntentHelp.openTTSSetting()
++                "saveReadAloudVisualLog" -> {
++                    val result = ReadAloudVisualTrace.export(requireContext())
++                    requireContext().toastOnUi(
++                        "已保存朗读定位日志: ${result.displayPath}",
++                        Toast.LENGTH_LONG
++                    )
++                }
+             }
+             return super.onPreferenceTreeClick(preference)
+         }
+diff --git a/app/src/main/java/io/legado/app/ui/book/read/config/ReadAloudDialog.kt b/app/src/main/java/io/legado/app/ui/book/read/config/ReadAloudDialog.kt
+index 631765bb2..b6f55687f 100644
+--- a/app/src/main/java/io/legado/app/ui/book/read/config/ReadAloudDialog.kt
++++ b/app/src/main/java/io/legado/app/ui/book/read/config/ReadAloudDialog.kt
+@@ -108,8 +108,8 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
+             dismissAllowingStateLoss()
+         }
+         ivPlayPause.setOnClickListener { callBack?.onClickReadAloud() }
+-        ivPlayPrev.setOnClickListener { ReadAloud.prevParagraph(requireContext()) }
+-        ivPlayNext.setOnClickListener { ReadAloud.nextParagraph(requireContext()) }
++        ivPlayPrev.setOnClickListener { callBack?.readAloudPreviousParagraph() }
++        ivPlayNext.setOnClickListener { callBack?.readAloudNextParagraph() }
+         ivCatalog.setOnClickListener { callBack?.openChapterList() }
+         ivToBackstage.setOnClickListener { callBack?.finish() }
+         cbTtsFollowSys.setOnCheckedChangeListener { _, isChecked ->
+@@ -256,6 +256,8 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
+         fun showMenuBar()
+         fun openChapterList()
+         fun onClickReadAloud()
++        fun readAloudPreviousParagraph()
++        fun readAloudNextParagraph()
+         fun finish()
+     }
+-}
+\ No newline at end of file
++}
+diff --git a/app/src/main/res/values-zh-rCN/strings.xml b/app/src/main/res/values-zh-rCN/strings.xml
+index 2fea33bc7..b177a6fc1 100644
+--- a/app/src/main/res/values-zh-rCN/strings.xml
++++ b/app/src/main/res/values-zh-rCN/strings.xml
+@@ -937,6 +937,8 @@
+     <string name="pref_media_button_per_next">媒体按钮 • 上一首|下一首</string>
+     <string name="pref_media_button_per_next_summary">上一段|下一段/上一章|下一章</string>
+     <string name="read_aloud_by_page_summary">及时翻页，翻页时会停顿一下</string>
++    <string name="read_aloud_visual_position">朗读基于视觉定位</string>
++    <string name="read_aloud_visual_position_summary">开启后，阅读界面内的上一段/下一段会朗读屏幕中间附近的段落</string>
+     <string name="check_source_show_debug_message">校验显示详细信息</string>
+     <string name="check_source_show_debug_message_summary">书源校验时显示网络请求步骤和时间</string>
+     <string name="need_login">需要登录</string>
+diff --git a/app/src/main/res/values-zh-rHK/strings.xml b/app/src/main/res/values-zh-rHK/strings.xml
+index 853b67b87..c6c076fef 100644
+--- a/app/src/main/res/values-zh-rHK/strings.xml
++++ b/app/src/main/res/values-zh-rHK/strings.xml
+@@ -900,6 +900,8 @@
+     <string name="pref_media_button_per_next">媒體按鈕•上一首|下一首</string>
+     <string name="pref_media_button_per_next_summary">上一段|下一段/上一章|下一章</string>
+     <string name="read_aloud_by_page_summary">及時翻頁,翻頁時會停頓一下</string>
++    <string name="read_aloud_visual_position">朗讀基於視覺定位</string>
++    <string name="read_aloud_visual_position_summary">開啟後，閱讀界面內的上一段/下一段會朗讀屏幕中間附近的段落</string>
+     <string name="check_source_show_debug_message">校驗書源顯示詳細信息</string>
+     <string name="check_source_show_debug_message_summary">書源校驗時顯示網絡請求步驟和時間</string>
+     <string name="need_login">需登錄</string>
+diff --git a/app/src/main/res/values-zh-rTW/strings.xml b/app/src/main/res/values-zh-rTW/strings.xml
+index 0e080f5ac..e1e1b6b90 100644
+--- a/app/src/main/res/values-zh-rTW/strings.xml
++++ b/app/src/main/res/values-zh-rTW/strings.xml
+@@ -903,6 +903,8 @@
+     <string name="pref_media_button_per_next">媒體按鈕•上一首|下一首</string>
+     <string name="pref_media_button_per_next_summary">上一段|下一段/上一章|下一章</string>
+     <string name="read_aloud_by_page_summary">及時翻頁，翻頁時會停頓一下</string>
++    <string name="read_aloud_visual_position">朗讀基於視覺定位</string>
++    <string name="read_aloud_visual_position_summary">開啟後，閱讀界面內的上一段/下一段會朗讀螢幕中間附近的段落</string>
+     <string name="check_source_show_debug_message">校驗書源顯示詳細資訊</string>
+     <string name="check_source_show_debug_message_summary">書源校驗時顯示網路請求步驟和時間</string>
+     <string name="need_login">需登入</string>
+diff --git a/app/src/main/res/values/strings.xml b/app/src/main/res/values/strings.xml
+index 1977edb8c..d3dd3e75f 100644
+--- a/app/src/main/res/values/strings.xml
++++ b/app/src/main/res/values/strings.xml
+@@ -968,6 +968,10 @@
+     <string name="pref_media_button_per_next">Media Buttons • Previous | Next</string>
+     <string name="pref_media_button_per_next_summary">Previous Paragraph|Next Paragraph/Previous Chapter|Next Chapter</string>
+     <string name="read_aloud_by_page_summary">Turning pages in time, with a pause when the page is turned</string>
++    <string name="read_aloud_visual_position">Read aloud from visual position</string>
++    <string name="read_aloud_visual_position_summary">When enabled, previous/next paragraph controls in the reader use the paragraph near the screen center</string>
++    <string name="read_aloud_visual_debug_log">Save read aloud visual log</string>
++    <string name="read_aloud_visual_debug_log_summary">Save recent visual page, render page, and TTS position events to Download/legado-tts-debug</string>
+     <string name="check_source_show_debug_message">Check book source shows debug message</string>
+     <string name="check_source_show_debug_message_summary">Show network status and timestamp during source checking</string>
+     <string name="need_login">Require Login</string>
+diff --git a/app/src/main/res/xml/pref_config_aloud.xml b/app/src/main/res/xml/pref_config_aloud.xml
+index a2b1d076a..2a3c0394a 100644
+--- a/app/src/main/res/xml/pref_config_aloud.xml
++++ b/app/src/main/res/xml/pref_config_aloud.xml
+@@ -41,6 +41,19 @@
+             android:key="readAloudByPage"
+             app:iconSpaceReserved="false" />
+ 
++        <io.legado.app.lib.prefs.SwitchPreference
++            android:defaultValue="false"
++            android:title="@string/read_aloud_visual_position"
++            android:summary="@string/read_aloud_visual_position_summary"
++            android:key="readAloudVisualPosition"
++            app:iconSpaceReserved="false" />
++
++        <io.legado.app.lib.prefs.Preference
++            android:key="saveReadAloudVisualLog"
++            android:summary="@string/read_aloud_visual_debug_log_summary"
++            android:title="@string/read_aloud_visual_debug_log"
++            app:iconSpaceReserved="false" />
++
+         <io.legado.app.lib.prefs.SwitchPreference
+             android:defaultValue="false"
+             android:key="systemMediaControlCompatibilityChange"

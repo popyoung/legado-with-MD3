@@ -101,6 +101,13 @@ internal object ReadAloudVisualPositioner {
         return currentOffset - previousPageHeight
     }
 
+    fun firstVisibleRelativePage(
+        readAloudActive: Boolean,
+        currentOffset: Float
+    ): Int {
+        return if (readAloudActive && currentOffset > 0f) -1 else 0
+    }
+
     fun nextChapterOffset(
         previousEffectiveOffset: Float,
         previousPageHeight: Float

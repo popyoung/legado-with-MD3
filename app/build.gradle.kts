@@ -25,8 +25,14 @@ val versionProps = Properties().apply {
 val versionMajor = versionProps["VERSION_MAJOR"]?.toString()?.toInt() ?: 0
 val versionMinor = versionProps["VERSION_MINOR"]?.toString()?.toInt() ?: 0
 val versionPatch = versionProps["VERSION_PATCH"]?.toString()?.toInt() ?: 0
+val versionPersonal = versionProps["VERSION_PERSONAL"]
+    ?.toString()
+    ?.trim()
+    ?.takeIf { it.isNotEmpty() && it != "0" }
 val appName = "legado"
-val projectVersionName = "$versionMajor.$versionMinor.$versionPatch"
+val upstreamVersionName = "$versionMajor.$versionMinor.$versionPatch"
+val projectVersionName = versionPersonal?.let { "$upstreamVersionName.$it" }
+    ?: upstreamVersionName
 val splitAbisProperty = providers.gradleProperty("legado.splitAbis").orNull
 val splitAbis = splitAbisProperty
     ?.split(",")
