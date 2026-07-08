@@ -1,0 +1,3602 @@
+From 1c64e916a52dc4085802980bea4276bc82c76d22 Mon Sep 17 00:00:00 2001
+From: popyoung <popyoung@163.com>
+Date: Wed, 8 Jul 2026 12:08:04 +0800
+Subject: [PATCH 2/2] Refine TTS read aloud behavior
+
+---
+ .../java/io/legado/app/constant/EventBus.kt   |   1 +
+ .../java/io/legado/app/constant/PreferKey.kt  |   1 +
+ .../io/legado/app/help/config/AppConfig.kt    |   3 +
+ .../io/legado/app/help/coroutine/Coroutine.kt |   4 +
+ .../app/model/ReadAloudPageChangePolicy.kt    |  26 +
+ .../main/java/io/legado/app/model/ReadBook.kt | 163 ++++-
+ .../app/service/BaseReadAloudService.kt       | 166 ++++-
+ .../app/service/HttpReadAloudService.kt       |   1 -
+ .../legado/app/service/ReadAloudProgress.kt   |  27 +
+ .../legado/app/service/TTSReadAloudService.kt |  27 +-
+ .../app/ui/book/read/ReadBookActivity.kt      | 548 ++++++++++++++-
+ .../book/read/config/ReadAloudConfigDialog.kt |   9 +
+ .../ui/book/read/config/ReadAloudDialog.kt    |   8 +-
+ .../app/ui/book/read/page/ContentTextView.kt  | 371 +++++++++-
+ .../legado/app/ui/book/read/page/PageView.kt  |  38 +-
+ .../page/ReadAloudParagraphHighlighter.kt     |  27 +
+ .../read/page/ReadAloudVisualPositioner.kt    | 272 ++++++++
+ .../ui/book/read/page/ReadAloudVisualTrace.kt | 126 ++++
+ .../legado/app/ui/book/read/page/ReadView.kt  |  38 +-
+ .../ui/book/read/page/entities/TextLine.kt    |  11 +-
+ .../ui/book/read/page/entities/TextPage.kt    |  15 +-
+ .../read/page/provider/TextPageFactory.kt     |   3 +
+ app/src/main/res/values-zh-rCN/strings.xml    |   2 +
+ app/src/main/res/values-zh-rHK/strings.xml    |   2 +
+ app/src/main/res/values-zh-rTW/strings.xml    |   2 +
+ app/src/main/res/values/strings.xml           |   4 +
+ app/src/main/res/xml/pref_config_aloud.xml    |  13 +
+ .../model/ReadAloudPageChangePolicyTest.kt    |  68 ++
+ .../app/service/ReadAloudProgressTest.kt      |  37 +
+ .../page/ReadAloudParagraphHighlighterTest.kt |  76 ++
+ .../page/ReadAloudVisualPositionerTest.kt     | 655 ++++++++++++++++++
+ 31 files changed, 2640 insertions(+), 104 deletions(-)
+ create mode 100644 app/src/main/java/io/legado/app/model/ReadAloudPageChangePolicy.kt
+ create mode 100644 app/src/main/java/io/legado/app/service/ReadAloudProgress.kt
+ create mode 100644 app/src/main/java/io/legado/app/ui/book/read/page/ReadAloudParagraphHighlighter.kt
+ create mode 100644 app/src/main/java/io/legado/app/ui/book/read/page/ReadAloudVisualPositioner.kt
+ create mode 100644 app/src/main/java/io/legado/app/ui/book/read/page/ReadAloudVisualTrace.kt
+ create mode 100644 app/src/test/java/io/legado/app/model/ReadAloudPageChangePolicyTest.kt
+ create mode 100644 app/src/test/java/io/legado/app/service/ReadAloudProgressTest.kt
+ create mode 100644 app/src/test/java/io/legado/app/ui/book/read/page/ReadAloudParagraphHighlighterTest.kt
+ create mode 100644 app/src/test/java/io/legado/app/ui/book/read/page/ReadAloudVisualPositionerTest.kt
+
+diff --git a/app/src/main/java/io/legado/app/constant/EventBus.kt b/app/src/main/java/io/legado/app/constant/EventBus.kt
+index 52c43cee8..3b0487d06 100644
+--- a/app/src/main/java/io/legado/app/constant/EventBus.kt
++++ b/app/src/main/java/io/legado/app/constant/EventBus.kt
+@@ -7,6 +7,7 @@ object EventBus {
+     const val BOOKSHELF_REFRESH = "bookshelfRefresh"
+     const val ALOUD_STATE = "aloud_state"
+     const val TTS_PROGRESS = "ttsStart"
++    const val READ_ALOUD_MANUAL_STEP = "readAloudManualStep"
+     const val AUDIO_DS = "audioDs"
+     const val READ_ALOUD_DS = "readAloudDs"
+     const val BATTERY_CHANGED = "batteryChanged"
+diff --git a/app/src/main/java/io/legado/app/constant/PreferKey.kt b/app/src/main/java/io/legado/app/constant/PreferKey.kt
+index 050a0fb05..f70e1e602 100644
+--- a/app/src/main/java/io/legado/app/constant/PreferKey.kt
++++ b/app/src/main/java/io/legado/app/constant/PreferKey.kt
+@@ -39,6 +39,7 @@ object PreferKey {
+     const val hideNavigationBar = "hideNavigationBar"
+     const val precisionSearch = "precisionSearch"
+     const val readAloudByPage = "readAloudByPage"
++    const val readAloudVisualPosition = "readAloudVisualPosition"
+     const val ttsEngine = "appTtsEngine"
+     const val ttsFollowSys = "ttsFollowSys"
+     const val ttsSpeechRate = "ttsSpeechRate"
+diff --git a/app/src/main/java/io/legado/app/help/config/AppConfig.kt b/app/src/main/java/io/legado/app/help/config/AppConfig.kt
+index 8476d4395..7a7cd1cc7 100644
+--- a/app/src/main/java/io/legado/app/help/config/AppConfig.kt
++++ b/app/src/main/java/io/legado/app/help/config/AppConfig.kt
+@@ -350,6 +350,9 @@ object AppConfig : SharedPreferences.OnSharedPreferenceChangeListener {
+     val noAnimScrollPage: Boolean
+         get() = appCtx.getPrefBoolean(PreferKey.noAnimScrollPage, false)
+ 
++    val readAloudVisualPosition: Boolean
++        get() = appCtx.getPrefBoolean(PreferKey.readAloudVisualPosition, false)
++
+     const val defaultSpeechRate = 5
+ 
+     var ttsSpeechRate: Int
+diff --git a/app/src/main/java/io/legado/app/help/coroutine/Coroutine.kt b/app/src/main/java/io/legado/app/help/coroutine/Coroutine.kt
+index f2bb9ed08..18a7a7ba1 100644
+--- a/app/src/main/java/io/legado/app/help/coroutine/Coroutine.kt
++++ b/app/src/main/java/io/legado/app/help/coroutine/Coroutine.kt
+@@ -163,6 +163,10 @@ class Coroutine<T>(
+         return job.invokeOnCompletion(handler)
+     }
+ 
++    suspend fun join() {
++        job.join()
++    }
++
+     fun start() {
+         job.start()
+     }
+diff --git a/app/src/main/java/io/legado/app/model/ReadAloudPageChangePolicy.kt b/app/src/main/java/io/legado/app/model/ReadAloudPageChangePolicy.kt
+new file mode 100644
+index 000000000..30f8355f2
+--- /dev/null
++++ b/app/src/main/java/io/legado/app/model/ReadAloudPageChangePolicy.kt
+@@ -0,0 +1,26 @@
++package io.legado.app.model
++
++internal object ReadAloudPageChangePolicy {
++
++    @Suppress("UNUSED_PARAMETER")
++    fun shouldRestartPausedServiceFromVisualPage(
++        readAloudRunning: Boolean,
++        readAloudPaused: Boolean,
++        visualChapterCompleted: Boolean,
++        visualChapterChanged: Boolean
++    ): Boolean {
++        return false
++    }
++
++    fun shouldRefreshReadViewOnPageChanged(
++        fromReadAloud: Boolean
++    ): Boolean {
++        return !fromReadAloud
++    }
++
++    fun shouldRefreshContentDuringChapterMove(
++        fromReadAloud: Boolean
++    ): Boolean {
++        return !fromReadAloud
++    }
++}
+diff --git a/app/src/main/java/io/legado/app/model/ReadBook.kt b/app/src/main/java/io/legado/app/model/ReadBook.kt
+index ea7c6f405..68175b28e 100644
+--- a/app/src/main/java/io/legado/app/model/ReadBook.kt
++++ b/app/src/main/java/io/legado/app/model/ReadBook.kt
+@@ -103,6 +103,25 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
+     val preDownloadSemaphore = Semaphore(2)
+ 
+     val executor = globalExecutor
++    private var readAloudPageChangeDepth = 0
++
++    fun <T> withReadAloudPageChange(block: () -> T): T {
++        readAloudPageChangeDepth++
++        return try {
++            block()
++        } finally {
++            readAloudPageChangeDepth--
++        }
++    }
++
++    suspend fun <T> withReadAloudPageChangeAwait(block: suspend () -> T): T {
++        readAloudPageChangeDepth++
++        return try {
++            block()
++        } finally {
++            readAloudPageChangeDepth--
++        }
++    }
+ 
+     private val ioScope = CoroutineScope(IO)
+ 
+@@ -431,7 +450,7 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
+             prevTextChapter = curTextChapter
+             curTextChapter = nextTextChapter
+             nextTextChapter = null
+-            if (curTextChapter == null) {
++            if (curTextChapter == null || curTextChapter?.isCompleted == false) {
+                 AppLog.putDebug("moveToNextChapter-章节未加载,开始加载")
+                 if (upContentInPlace) callBack?.upContent()
+                 loadContent(durChapterIndex, upContent, resetPageOffset = false)
+@@ -462,7 +481,7 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
+             prevTextChapter = curTextChapter
+             curTextChapter = nextTextChapter
+             nextTextChapter = null
+-            if (curTextChapter == null) {
++            if (curTextChapter == null || curTextChapter?.isCompleted == false) {
+                 AppLog.putDebug("moveToNextChapter-章节未加载,开始加载")
+                 if (upContentInPlace) callBack?.upContentAwait()
+                 loadContentAwait(durChapterIndex, upContent, resetPageOffset = false)
+@@ -510,8 +529,42 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
+         }
+     }
+ 
+-    fun skipToPage(index: Int, success: (() -> Unit)? = null) {
+-        durChapterPos = curTextChapter?.getReadLength(index) ?: index
++    suspend fun moveToPrevChapterAwait(
++        upContent: Boolean,
++        toLast: Boolean = true,
++        upContentInPlace: Boolean = true
++    ): Boolean {
++        if (durChapterIndex > 0) {
++            durChapterPos = if (toLast) prevTextChapter?.lastReadLength ?: Int.MAX_VALUE else 0
++            durChapterIndex--
++            clearExpiredChapterLoadingJob()
++            nextTextChapter = curTextChapter
++            curTextChapter = prevTextChapter
++            prevTextChapter = null
++            if (curTextChapter == null || curTextChapter?.isCompleted == false) {
++                if (upContentInPlace) callBack?.upContentAwait()
++                loadContentAwait(durChapterIndex, upContent, resetPageOffset = false)
++            } else if (upContent && upContentInPlace) {
++                callBack?.upContentAwait()
++            }
++            loadContent(durChapterIndex.minus(1), upContent, false)
++            saveRead()
++            callBack?.upMenuView()
++            curPageChanged()
++            return true
++        } else {
++            return false
++        }
++    }
++
++    fun skipToPage(
++        index: Int,
++        chapterPos: Int? = null,
++        success: (() -> Unit)? = null
++    ) {
++        durChapterPos = chapterPos?.coerceAtLeast(0)
++            ?: curTextChapter?.getReadLength(index)
++            ?: index
+         callBack?.upContent {
+             success?.invoke()
+         }
+@@ -519,9 +572,42 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
+         saveRead(true)
+     }
+ 
+-    fun setPageIndex(index: Int) {
++    fun alignToReadAloudChapter(
++        textChapter: TextChapter,
++        chapterPos: Int,
++        preloadAdjacent: Boolean = true
++    ) {
++        val chapterIndex = textChapter.chapter.index
++        if (chapterIndex !in 0 until simulatedChapterSize) return
++        durChapterPos = chapterPos.coerceAtLeast(0)
++        if (durChapterIndex == chapterIndex && curTextChapter === textChapter) {
++            return
++        }
++        val nearbyChapters = listOfNotNull(prevTextChapter, curTextChapter, nextTextChapter)
++        durChapterIndex = chapterIndex
++        msg = null
++        curTextChapter = textChapter
++        prevTextChapter = nearbyChapters.firstOrNull {
++            it !== textChapter && it.isCompleted && it.chapter.index == chapterIndex - 1
++        }
++        nextTextChapter = nearbyChapters.firstOrNull {
++            it !== textChapter && it.isCompleted && it.chapter.index == chapterIndex + 1
++        }
++        clearExpiredChapterLoadingJob()
++        if (!preloadAdjacent) return
++        if (prevTextChapter == null) {
++            loadContent(chapterIndex - 1, upContent = false, resetPageOffset = false)
++        }
++        if (nextTextChapter == null) {
++            loadContent(chapterIndex + 1, upContent = false, resetPageOffset = false)
++        }
++    }
++
++    fun setPageIndex(index: Int, chapterPos: Int? = null) {
+         recycleRecorders(durPageIndex, index)
+-        durChapterPos = curTextChapter?.getReadLength(index) ?: index
++        durChapterPos = chapterPos?.coerceAtLeast(0)
++            ?: curTextChapter?.getReadLength(index)
++            ?: index
+         saveRead(true)
+         curPageChanged(true)
+     }
+@@ -563,9 +649,16 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
+      * 当前页面变化
+      */
+     private fun curPageChanged(pageChanged: Boolean = false) {
+-        callBack?.pageChanged()
++        val fromReadAloud = readAloudPageChangeDepth > 0
++        callBack?.pageChanged(fromReadAloud)
+         curTextChapter?.let {
+-            if (BaseReadAloudService.isRun && it.isCompleted) {
++            if (ReadAloudPageChangePolicy.shouldRestartPausedServiceFromVisualPage(
++                    readAloudRunning = BaseReadAloudService.isRun,
++                    readAloudPaused = BaseReadAloudService.pause,
++                    visualChapterCompleted = it.isCompleted,
++                    visualChapterChanged = it.chapter.index != BaseReadAloudService.readAloudChapterIndex
++                )
++            ) {
+                 val scrollPageAnim = pageAnim() == 3
+                 if (scrollPageAnim && pageChanged) {
+                     ReadAloud.pause(appCtx)
+@@ -581,11 +674,15 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
+     /**
+      * 朗读
+      */
+-    fun readAloud(play: Boolean = true, startPos: Int = 0) {
++    fun readAloud(
++        play: Boolean = true,
++        pageIndex: Int = durPageIndex,
++        startPos: Int = 0
++    ) {
+         book ?: return
+         val textChapter = curTextChapter ?: return
+         if (textChapter.isCompleted) {
+-            ReadAloud.play(appCtx, play, startPos = startPos)
++            ReadAloud.play(appCtx, play, pageIndex = pageIndex, startPos = startPos)
+         }
+     }
+ 
+@@ -702,24 +799,46 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
+         resetPageOffset: Boolean = false,
+         success: (() -> Unit)? = null
+     ) = withContext(IO) {
+-        if (addLoading(index)) {
+-            try {
+-                val book = book!!
+-                val chapter = appDb.bookChapterDao.getChapter(book.bookUrl, index)!!
+-                val content = BookHelp.getContent(book, chapter) ?: downloadAwait(chapter)
+-                contentLoadFinishAwait(book, chapter, content, upContent, resetPageOffset)
+-                success?.invoke()
+-            } catch (e: Exception) {
++        if (!addLoading(index)) {
++            waitChapterLoading(index)
++            return@withContext
++        }
++        try {
++            val book = book!!
++            val chapter = appDb.bookChapterDao.getChapter(book.bookUrl, index)!!
++            val content = BookHelp.getContent(book, chapter) ?: downloadAwait(chapter)
++            contentLoadFinishAwait(book, chapter, content, upContent, resetPageOffset)
++            success?.invoke()
++        } catch (e: Exception) {
+                 AppLog.put("加载正文出错\n${e.localizedMessage}")
+-            } finally {
+-                removeLoading(index)
+-            }
++        } finally {
++            removeLoading(index)
+         }
+     }
+ 
+     /**
+      * 下载正文
+      */
++    private suspend fun waitChapterLoading(index: Int) {
++        try {
++            withTimeout(30_000L) {
++                while (true) {
++                    chapterLoadingJobs[index]?.let {
++                        it.join()
++                        return@withTimeout
++                    }
++                    val isLoading = synchronized(this@ReadBook) {
++                        loadingChapters.contains(index)
++                    }
++                    if (!isLoading) return@withTimeout
++                    delay(50)
++                }
++            }
++        } catch (_: TimeoutCancellationException) {
++            AppLog.put("Wait chapter loading timeout for chapter $index")
++        }
++    }
++
+     private suspend fun downloadIndex(index: Int) {
+         if (index < 0) return
+         if (index > chapterSize - 1) {
+@@ -1156,7 +1275,7 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
+             success: (() -> Unit)? = null
+         )
+ 
+-        fun pageChanged()
++        fun pageChanged(fromReadAloud: Boolean)
+ 
+         fun contentLoadFinish()
+ 
+diff --git a/app/src/main/java/io/legado/app/service/BaseReadAloudService.kt b/app/src/main/java/io/legado/app/service/BaseReadAloudService.kt
+index b3f40ff1c..afbbf80b4 100644
+--- a/app/src/main/java/io/legado/app/service/BaseReadAloudService.kt
++++ b/app/src/main/java/io/legado/app/service/BaseReadAloudService.kt
+@@ -41,9 +41,11 @@ import io.legado.app.help.glide.ImageLoader
+ import io.legado.app.lib.permission.Permissions
+ import io.legado.app.lib.permission.PermissionsCompat
+ import io.legado.app.model.ReadAloud
++import io.legado.app.model.ReadAloudPageChangePolicy
+ import io.legado.app.model.ReadBook
+ import io.legado.app.receiver.MediaButtonReceiver
+ import io.legado.app.ui.book.read.ReadBookActivity
++import io.legado.app.ui.book.read.page.ReadAloudVisualPositioner
+ import io.legado.app.ui.book.read.page.entities.TextChapter
+ import io.legado.app.utils.LogUtils
+ import io.legado.app.utils.activityPendingIntent
+@@ -84,6 +86,14 @@ abstract class BaseReadAloudService : BaseService(),
+         var timeMinute: Int = 0
+             private set
+ 
++        @JvmStatic
++        var readAloudChapterIndex: Int = -1
++            private set
++
++        @JvmStatic
++        var readAloudChapterStart: Int = 0
++            private set
++
+         fun isPlay(): Boolean {
+             return isRun && !pause
+         }
+@@ -132,6 +142,7 @@ abstract class BaseReadAloudService : BaseService(),
+     var paragraphStartPos = 0
+     var readAloudByPage = false
+         private set
++    private var rememberedReadAloudPosition: ReadAloudProgress.Position? = null
+ 
+     private val broadcastReceiver = object : BroadcastReceiver() {
+         override fun onReceive(context: Context, intent: Intent) {
+@@ -194,6 +205,8 @@ abstract class BaseReadAloudService : BaseService(),
+         }
+         isRun = false
+         pause = true
++        readAloudChapterIndex = -1
++        readAloudChapterStart = 0
+         abandonFocus()
+         unregisterReceiver(broadcastReceiver)
+         postEvent(EventBus.ALOUD_STATE, Status.STOP)
+@@ -265,7 +278,9 @@ abstract class BaseReadAloudService : BaseService(),
+                             textChapter.paragraphs[nowSpeak].chapterPosition
+                 }
+             }
++            updateReadAloudPosition(readAloudNumber + 1)
+             paragraphStartPos = pos
++            rememberCurrentReadAloudPosition()
+             launch(Main) {
+                 upMediaMetadata()
+                 if (play) play() else pageChanged = true
+@@ -311,6 +326,7 @@ abstract class BaseReadAloudService : BaseService(),
+     @SuppressLint("WakelockTimeout")
+     @CallSuper
+     open fun resumeReadAloud() {
++        restoreReadBookToReadAloudPosition()
+         resumeReadAloudInternal()
+     }
+ 
+@@ -326,10 +342,55 @@ abstract class BaseReadAloudService : BaseService(),
+     abstract fun upSpeechRate(reset: Boolean = false)
+ 
+     fun upTtsProgress(progress: Int) {
++        updateReadAloudPosition(progress)
+         postEvent(EventBus.TTS_PROGRESS, progress)
+     }
+ 
++    protected fun rememberCurrentReadAloudPosition() {
++        rememberReadAloudPosition(
++            readAloudNumber = readAloudNumber,
++            paragraphStartPos = paragraphStartPos,
++            nowSpeak = nowSpeak,
++            pageIndex = pageIndex
++        )
++    }
++
++    protected fun rememberReadAloudPosition(
++        readAloudNumber: Int,
++        paragraphStartPos: Int,
++        nowSpeak: Int,
++        pageIndex: Int
++    ) {
++        rememberReadAloudPosition(
++            ReadAloudProgress.Position(
++                readAloudNumber = readAloudNumber,
++                paragraphStartPos = paragraphStartPos,
++                nowSpeak = nowSpeak,
++                pageIndex = pageIndex
++            )
++        )
++    }
++
++    private fun rememberReadAloudPosition(position: ReadAloudProgress.Position) {
++        rememberedReadAloudPosition = position
++        updateReadAloudPosition(position.readAloudNumber + 1)
++    }
++
++    protected fun applyRememberedReadAloudPosition() {
++        val position = rememberedReadAloudPosition ?: return
++        readAloudNumber = position.readAloudNumber
++        paragraphStartPos = position.paragraphStartPos
++        nowSpeak = position.nowSpeak
++        pageIndex = position.pageIndex
++    }
++
++    private fun updateReadAloudPosition(progress: Int) {
++        readAloudChapterIndex = textChapter?.chapter?.index ?: -1
++        readAloudChapterStart = progress.coerceAtLeast(0)
++    }
++
+     private fun prevP() {
++        postEvent(EventBus.READ_ALOUD_MANUAL_STEP, true)
+         if (nowSpeak > 0) {
+             playStop()
+             do {
+@@ -342,21 +403,20 @@ abstract class BaseReadAloudService : BaseService(),
+                     val paragraphs = it.getParagraphs(true)
+                     if (!paragraphs[nowSpeak].isParagraphEnd) readAloudNumber++
+                 }
+-                if (readAloudNumber < it.getReadLength(pageIndex)) {
+-                    pageIndex--
+-                    ReadBook.moveToPrevPage()
+-                }
++                alignReadBookToReadAloudChapter()
++                syncReadBookPageToReadAloudPosition(it)
+             }
+             upTtsProgress(readAloudNumber + 1)
++            rememberCurrentReadAloudPosition()
+             upMediaMetadata(showContent = true)
+             play()
+         } else {
+-            toLast = true
+-            ReadBook.moveToPrevChapter(true)
++            moveToPrevChapterAndRead(toLast = true)
+         }
+     }
+ 
+     private fun nextP() {
++        postEvent(EventBus.READ_ALOUD_MANUAL_STEP, true)
+         if (nowSpeak < contentList.size - 1) {
+             playStop()
+             readAloudNumber += contentList[nowSpeak].length.plus(1) - paragraphStartPos
+@@ -367,14 +427,11 @@ abstract class BaseReadAloudService : BaseService(),
+                     val paragraphs = it.getParagraphs(true)
+                     if (!paragraphs[nowSpeak].isParagraphEnd) readAloudNumber--
+                 }
+-                if (pageIndex + 1 < it.pageSize
+-                    && readAloudNumber >= it.getReadLength(pageIndex + 1)
+-                ) {
+-                    pageIndex++
+-                    ReadBook.moveToNextPage()
+-                }
++                alignReadBookToReadAloudChapter()
++                syncReadBookPageToReadAloudPosition(it)
+             }
+             upTtsProgress(readAloudNumber + 1)
++            rememberCurrentReadAloudPosition()
+             upMediaMetadata(showContent = true)
+             play()
+         } else {
+@@ -382,6 +439,48 @@ abstract class BaseReadAloudService : BaseService(),
+         }
+     }
+ 
++    private fun alignReadBookToReadAloudChapter(preloadAdjacent: Boolean = true) {
++        val textChapter = textChapter ?: return
++        ReadBook.alignToReadAloudChapter(textChapter, readAloudNumber, preloadAdjacent)
++    }
++
++    private fun syncReadBookPageToReadAloudPosition(textChapter: TextChapter) {
++        val targetPageIndex = textChapter.getPageIndexByCharIndex(readAloudNumber)
++        if (targetPageIndex < 0) {
++            return
++        }
++        val targetPageChanged = targetPageIndex != pageIndex
++        pageIndex = targetPageIndex
++        if (!ReadAloudVisualPositioner.shouldSyncReadBookPageBeforeManualStepProgress(
++                scrollPageAnim = ReadBook.pageAnim() == 3,
++                targetPageChanged = targetPageChanged
++            )
++        ) {
++            return
++        }
++        ReadBook.withReadAloudPageChange {
++            ReadBook.skipToPage(pageIndex, chapterPos = readAloudNumber)
++        }
++    }
++
++    private fun restoreReadBookToReadAloudPosition() {
++        val textChapter = textChapter ?: return
++        ReadBook.withReadAloudPageChange {
++            ReadBook.alignToReadAloudChapter(textChapter, readAloudNumber)
++        }
++        upTtsProgress(readAloudNumber + 1)
++        rememberCurrentReadAloudPosition()
++    }
++
++    private fun restartReadAloudFromReadBook(toLastChapterEnd: Boolean = false) {
++        val pageIndex = if (toLastChapterEnd) {
++            ReadBook.curTextChapter?.lastIndex ?: ReadBook.durPageIndex
++        } else {
++            ReadBook.durPageIndex
++        }.coerceAtLeast(0)
++        newReadAloud(play = true, pageIndex = pageIndex, startPos = 0)
++    }
++
+     private fun setTimer(minute: Int) {
+         timeMinute = minute
+         doDs()
+@@ -702,17 +801,48 @@ abstract class BaseReadAloudService : BaseService(),
+     abstract fun aloudServicePendingIntent(actionStr: String): PendingIntent?
+ 
+     open fun prevChapter() {
+-        toLast = false
+-        resumeReadAloudInternal()
+-        ReadBook.moveToPrevChapter(true, toLast = false)
++        moveToPrevChapterAndRead(toLast = false)
+     }
+ 
+     open fun nextChapter() {
+         ReadBook.upReadTime()
+         AppLog.putDebug("${ReadBook.curTextChapter?.chapter?.title} 朗读结束跳转下一章并朗读")
+-        resumeReadAloudInternal()
+-        if (!ReadBook.moveToNextChapter(true)) {
+-            stopSelf()
++        execute {
++            resumeReadAloudInternal()
++            val moved = ReadBook.withReadAloudPageChangeAwait {
++                alignReadBookToReadAloudChapter(preloadAdjacent = false)
++                ReadBook.moveToNextChapterAwait(
++                    upContent = ReadAloudPageChangePolicy.shouldRefreshContentDuringChapterMove(
++                        fromReadAloud = true
++                    ),
++                    upContentInPlace = false
++                )
++            }
++            if (moved) {
++                restartReadAloudFromReadBook()
++            } else {
++                stopSelf()
++            }
++        }
++    }
++
++    private fun moveToPrevChapterAndRead(toLast: Boolean) {
++        this.toLast = toLast
++        execute {
++            resumeReadAloudInternal()
++            val moved = ReadBook.withReadAloudPageChangeAwait {
++                alignReadBookToReadAloudChapter(preloadAdjacent = false)
++                ReadBook.moveToPrevChapterAwait(
++                    upContent = ReadAloudPageChangePolicy.shouldRefreshContentDuringChapterMove(
++                        fromReadAloud = true
++                    ),
++                    toLast = toLast,
++                    upContentInPlace = false
++                )
++            }
++            if (moved) {
++                restartReadAloudFromReadBook(toLastChapterEnd = toLast)
++            }
+         }
+     }
+ 
+diff --git a/app/src/main/java/io/legado/app/service/HttpReadAloudService.kt b/app/src/main/java/io/legado/app/service/HttpReadAloudService.kt
+index 6c83ec29b..3657571a5 100644
+--- a/app/src/main/java/io/legado/app/service/HttpReadAloudService.kt
++++ b/app/src/main/java/io/legado/app/service/HttpReadAloudService.kt
+@@ -557,7 +557,6 @@ class HttpReadAloudService : BaseReadAloudService(),
+                     && readAloudNumber + i > textChapter.getReadLength(pageIndex + 1)
+                 ) {
+                     pageIndex++
+-                    ReadBook.moveToNextPage()
+                     upTtsProgress(readAloudNumber + i.toInt())
+                 }
+                 delay(sleep)
+diff --git a/app/src/main/java/io/legado/app/service/ReadAloudProgress.kt b/app/src/main/java/io/legado/app/service/ReadAloudProgress.kt
+new file mode 100644
+index 000000000..95c5acf56
+--- /dev/null
++++ b/app/src/main/java/io/legado/app/service/ReadAloudProgress.kt
+@@ -0,0 +1,27 @@
++package io.legado.app.service
++
++internal object ReadAloudProgress {
++
++    data class Position(
++        val readAloudNumber: Int,
++        val paragraphStartPos: Int,
++        val nowSpeak: Int,
++        val pageIndex: Int
++    )
++
++    fun fromRangeStart(
++        readAloudNumber: Int,
++        paragraphStartPos: Int,
++        rangeStart: Int,
++        nowSpeak: Int,
++        pageIndex: Int
++    ): Position {
++        val safeRangeStart = rangeStart.coerceAtLeast(0)
++        return Position(
++            readAloudNumber = readAloudNumber.coerceAtLeast(0) + safeRangeStart,
++            paragraphStartPos = paragraphStartPos.coerceAtLeast(0) + safeRangeStart,
++            nowSpeak = nowSpeak.coerceAtLeast(0),
++            pageIndex = pageIndex.coerceAtLeast(0)
++        )
++    }
++}
+diff --git a/app/src/main/java/io/legado/app/service/TTSReadAloudService.kt b/app/src/main/java/io/legado/app/service/TTSReadAloudService.kt
+index bf93e315f..20943d36b 100644
+--- a/app/src/main/java/io/legado/app/service/TTSReadAloudService.kt
++++ b/app/src/main/java/io/legado/app/service/TTSReadAloudService.kt
+@@ -178,6 +178,7 @@ class TTSReadAloudService : BaseReadAloudService(), TextToSpeech.OnInitListener
+      * 恢复朗读
+      */
+     override fun resumeReadAloud() {
++        applyRememberedReadAloudPosition()
+         super.resumeReadAloud()
+         play()
+     }
+@@ -199,8 +200,8 @@ class TTSReadAloudService : BaseReadAloudService(), TextToSpeech.OnInitListener
+                     && readAloudNumber + 1 > it.getReadLength(pageIndex + 1)
+                 ) {
+                     pageIndex++
+-                    ReadBook.moveToNextPage()
+                 }
++                rememberCurrentReadAloudPosition()
+                 upTtsProgress(readAloudNumber + 1)
+                 upMediaMetadata(showContent = true)
+             }
+@@ -217,12 +218,31 @@ class TTSReadAloudService : BaseReadAloudService(), TextToSpeech.OnInitListener
+                 "onRangeStart nowSpeak:$nowSpeak pageIndex:$pageIndex utteranceId:$utteranceId start:$start end:$end frame:$frame"
+             LogUtils.d(TAG, msg)
+             textChapter?.let {
++                val position = ReadAloudProgress.fromRangeStart(
++                    readAloudNumber = readAloudNumber,
++                    paragraphStartPos = paragraphStartPos,
++                    rangeStart = start,
++                    nowSpeak = nowSpeak,
++                    pageIndex = pageIndex
++                )
+                 if (pageIndex + 1 < it.pageSize
+                     && readAloudNumber + start > it.getReadLength(pageIndex + 1)
+                 ) {
+                     pageIndex++
+-                    ReadBook.moveToNextPage()
++                    rememberReadAloudPosition(
++                        readAloudNumber = position.readAloudNumber,
++                        paragraphStartPos = position.paragraphStartPos,
++                        nowSpeak = position.nowSpeak,
++                        pageIndex = pageIndex
++                    )
+                     upTtsProgress(readAloudNumber + start)
++                } else {
++                    rememberReadAloudPosition(
++                        readAloudNumber = position.readAloudNumber,
++                        paragraphStartPos = position.paragraphStartPos,
++                        nowSpeak = position.nowSpeak,
++                        pageIndex = position.pageIndex
++                    )
+                 }
+             }
+         }
+@@ -246,6 +266,7 @@ class TTSReadAloudService : BaseReadAloudService(), TextToSpeech.OnInitListener
+                     return
+                 }
+             } while (contentList[nowSpeak].matches(AppPattern.notReadAloudRegex))
++            rememberCurrentReadAloudPosition()
+         }
+ 
+         @Deprecated("Deprecated in Java")
+@@ -260,4 +281,4 @@ class TTSReadAloudService : BaseReadAloudService(), TextToSpeech.OnInitListener
+         return servicePendingIntent<TTSReadAloudService>(actionStr)
+     }
+ 
+-}
+\ No newline at end of file
++}
+diff --git a/app/src/main/java/io/legado/app/ui/book/read/ReadBookActivity.kt b/app/src/main/java/io/legado/app/ui/book/read/ReadBookActivity.kt
+index db62d85de..a2450f4c6 100644
+--- a/app/src/main/java/io/legado/app/ui/book/read/ReadBookActivity.kt
++++ b/app/src/main/java/io/legado/app/ui/book/read/ReadBookActivity.kt
+@@ -57,6 +57,7 @@ import io.legado.app.lib.dialogs.SelectItem
+ import io.legado.app.lib.dialogs.alert
+ import io.legado.app.lib.dialogs.selector
+ import io.legado.app.model.ReadAloud
++import io.legado.app.model.ReadAloudPageChangePolicy
+ import io.legado.app.model.ReadBook
+ import io.legado.app.model.SourceCallBack
+ import io.legado.app.model.analyzeRule.AnalyzeRule
+@@ -93,9 +94,15 @@ import io.legado.app.ui.book.read.config.TipConfigDialog.Companion.TITLE_COLOR
+ import io.legado.app.ui.book.read.config.ToolButtonConfigDialog
+ import io.legado.app.ui.book.read.config.UnderlineConfigDialog.Companion.U_COLOR
+ import io.legado.app.ui.book.read.page.ContentTextView
++import io.legado.app.ui.book.read.page.ReadAloudParagraphHighlighter
++import io.legado.app.ui.book.read.page.ReadAloudVisualPositioner
++import io.legado.app.ui.book.read.page.ReadAloudVisualTrace
+ import io.legado.app.ui.book.read.page.ReadView
+ import io.legado.app.ui.book.read.page.entities.PageDirection
++import io.legado.app.ui.book.read.page.entities.TextChapter
++import io.legado.app.ui.book.read.page.entities.TextLine
+ import io.legado.app.ui.book.read.page.entities.TextPage
++import io.legado.app.ui.book.read.page.entities.TextParagraph
+ import io.legado.app.ui.book.read.page.provider.ChapterProvider
+ import io.legado.app.ui.book.read.page.provider.LayoutProgressListener
+ import io.legado.app.ui.book.read.page.provider.TextChapterLayout
+@@ -273,6 +280,11 @@ class ReadBookActivity : BaseReadBookActivity(),
+     private val prevPageDebounce by lazy { Debounce { keyPage(PageDirection.PREV) } }
+     private var bookChanged = false
+     private var pageChanged = false
++    private var readAloudVisualFollowPaused = false
++    private var restoringReadAloudVisualPosition = false
++    private var readAloudRestoreSerial = 0
++    private var readAloudRestoreLoadingSerial = 0
++    private var readAloudHighlightedPageIndices = emptySet<Int>()
+     private val handler by lazy { buildMainHandler() }
+     private val screenOffRunnable by lazy { Runnable { keepScreenOn(false) } }
+     private val executor = ReadBook.executor
+@@ -283,6 +295,11 @@ class ReadBookActivity : BaseReadBookActivity(),
+         }
+     }
+ 
++    private enum class ReadAloudVisualRestoreReason(val explicitFollowRestore: Boolean) {
++        BackNavigation(true),
++        ResumePlayback(true)
++    }
++
+     //恢复跳转前进度对话框的交互结果
+     private var confirmRestoreProcess: Boolean? = null
+     private val networkChangedListener by lazy {
+@@ -312,8 +329,13 @@ class ReadBookActivity : BaseReadBookActivity(),
+                 return@addCallback
+             }
+             if (BaseReadAloudService.isPlay()) {
+-                ReadAloud.pause(this@ReadBookActivity)
+-                toastOnUi(R.string.read_aloud_pause)
++                if (readAloudPositionVisibleOnScreen() || !restoreReadAloudVisualPosition(
++                        ReadAloudVisualRestoreReason.BackNavigation
++                    )
++                ) {
++                    ReadAloud.pause(this@ReadBookActivity)
++                    toastOnUi(R.string.read_aloud_pause)
++                }
+                 return@addCallback
+             }
+             if (isAutoPage) {
+@@ -1134,6 +1156,7 @@ class ReadBookActivity : BaseReadBookActivity(),
+             intent.removeExtra("readAloud")
+             ReadBook.readAloud()
+         }
++        restoringReadAloudVisualPosition = false
+         loadStates = true
+     }
+ 
+@@ -1189,9 +1212,19 @@ class ReadBookActivity : BaseReadBookActivity(),
+     /**
+      * 页面改变
+      */
+-    override fun pageChanged() {
++    override fun pageChanged(fromReadAloud: Boolean) {
+         pageChanged = true
+-        binding.readView.onPageChange()
++        if (BaseReadAloudService.isPlay() && !fromReadAloud && !restoringReadAloudVisualPosition) {
++            readAloudVisualFollowPaused = true
++            cancelReadAloudVisualRestore()
++            binding.readView.curPage.clearReadAloudVisualFollow()
++        }
++        if (ReadAloudPageChangePolicy.shouldRefreshReadViewOnPageChanged(fromReadAloud)) {
++            binding.readView.onPageChange()
++        }
++        if (ReadAloudVisualPositioner.shouldUpdateCenterIndicatorOnPageChanged(fromReadAloud)) {
++            updateReadAloudVisualCenterIndicator()
++        }
+         handler.post {
+             upSeekBarProgress()
+         }
+@@ -1473,6 +1506,7 @@ class ReadBookActivity : BaseReadBookActivity(),
+         autoPageStop()
+         when {
+             !BaseReadAloudService.isRun -> {
++                readAloudVisualFollowPaused = false
+                 ReadAloud.upReadAloudClass()
+                 val scrollPageAnim = ReadBook.pageAnim() == 3
+                 if (scrollPageAnim) {
+@@ -1481,11 +1515,10 @@ class ReadBookActivity : BaseReadBookActivity(),
+                         val (index, line) = pos
+                         if (ReadBook.durChapterIndex != index) {
+                             ReadBook.openChapter(index, line.chapterPosition, false) {
+-                                ReadBook.readAloud(startPos = line.pagePosition)
++                                readAloudFromLineParagraphStart(line)
+                             }
+                         } else {
+-                            ReadBook.durChapterPos = line.chapterPosition
+-                            ReadBook.readAloud(startPos = line.pagePosition)
++                            readAloudFromLineParagraphStart(line)
+                         }
+                     } else {
+                         ReadBook.readAloud()
+@@ -1496,36 +1529,323 @@ class ReadBookActivity : BaseReadBookActivity(),
+             }
+ 
+             BaseReadAloudService.pause -> {
+-                val scrollPageAnim = ReadBook.pageAnim() == 3
+-                if (scrollPageAnim && pageChanged) {
++                readAloudVisualFollowPaused = false
++                if (ReadAloudVisualPositioner.shouldRestoreStoredPositionOnResume(
++                        readAloudPaused = BaseReadAloudService.pause,
++                        visualPageChanged = pageChanged
++                    )
++                ) {
+                     pageChanged = false
+-                    val pos = binding.readView.getReadAloudPos()
+-                    if (pos != null) {
+-                        val (index, line) = pos
+-                        if (ReadBook.durChapterIndex != index) {
+-                            ReadBook.openChapter(index, line.chapterPosition, false) {
+-                                ReadBook.readAloud(startPos = line.pagePosition)
+-                            }
+-                        } else {
+-                            ReadBook.durChapterPos = line.chapterPosition
+-                            ReadBook.readAloud(startPos = line.pagePosition)
++                    restoreReadAloudVisualPosition(ReadAloudVisualRestoreReason.ResumePlayback)
++                }
++                ReadAloud.resume(this)
++            }
++
++            else -> ReadAloud.pause(this)
++        }
++    }
++
++    override fun readAloudPreviousParagraph() {
++        readAloudParagraphFromUi(next = false)
++    }
++
++    override fun readAloudNextParagraph() {
++        readAloudParagraphFromUi(next = true)
++    }
++
++    private fun readAloudParagraphFromUi(next: Boolean) {
++        val readAloudPositionVisible = readAloudPositionVisibleOnScreen()
++        ReadAloudVisualTrace.record(
++            event = "manualStepRequest",
++            detail = "next=$next visualPosition=${AppConfig.readAloudVisualPosition} running=${BaseReadAloudService.isRun} visible=$readAloudPositionVisible read=${BaseReadAloudService.readAloudChapterIndex}/${BaseReadAloudService.readAloudChapterStart} dur=${ReadBook.durChapterIndex}/${ReadBook.durPageIndex}/${ReadBook.durChapterPos} visual=[${binding.readView.readAloudVisualDebugState()}]"
++        )
++        if (ReadAloudVisualPositioner.shouldStepFromVisualCenter(
++                visualPositionEnabled = AppConfig.readAloudVisualPosition,
++                readAloudRunning = BaseReadAloudService.isRun,
++                readAloudPositionVisible = readAloudPositionVisible
++            )
++        ) {
++            if (readAloudFromVisualCenter()) return
++        }
++        if (next) {
++            ReadAloud.nextParagraph(this)
++        } else {
++            ReadAloud.prevParagraph(this)
++        }
++    }
++
++    private fun readAloudFromVisualCenter(): Boolean {
++        val pos = binding.readView.getReadAloudCenterPos() ?: run {
++            ReadAloudVisualTrace.record(
++                event = "manualStepVisualCenterFail",
++                detail = "reason=noCenterLine visual=[${binding.readView.readAloudVisualDebugState()}]"
++            )
++            return false
++        }
++        val (index, line) = pos
++        readAloudVisualFollowPaused = false
++        ReadAloudVisualTrace.record(
++            event = "manualStepVisualCenter",
++            detail = "chapter=$index lineChapterPos=${line.chapterPosition} linePagePos=${line.pagePosition} paragraph=${line.paragraphNum} visual=[${binding.readView.readAloudVisualDebugState()}]"
++        )
++        if (ReadBook.durChapterIndex != index) {
++            ReadBook.openChapter(index, line.chapterPosition, false) {
++                readAloudFromLineParagraphStart(line)
++            }
++        } else {
++            readAloudFromLineParagraphStart(line)
++        }
++        return true
++    }
++
++    private fun readAloudPositionVisibleOnScreen(): Boolean {
++        val chapterIndex = BaseReadAloudService.readAloudChapterIndex
++        if (chapterIndex < 0) return true
++        return binding.readView.containsVisibleChapterPosition(
++            chapterIndex = chapterIndex,
++            chapterPosition = BaseReadAloudService.readAloudChapterStart
++        )
++    }
++
++    private fun restoreReadAloudVisualPosition(
++        reason: ReadAloudVisualRestoreReason
++    ): Boolean {
++        val chapterIndex = BaseReadAloudService.readAloudChapterIndex
++        if (chapterIndex !in 0 until ReadBook.simulatedChapterSize) return false
++        val chapterStart = BaseReadAloudService.readAloudChapterStart.coerceAtLeast(0)
++        val restoreSerial = ++readAloudRestoreSerial
++        readAloudRestoreLoadingSerial = restoreSerial
++        val wasFollowPaused = readAloudVisualFollowPaused
++        val followDuringRestore = ReadAloudVisualPositioner.shouldFollowDuringRestore(
++            readAloudVisualFollowPaused = wasFollowPaused,
++            explicitFollowRestore = reason.explicitFollowRestore
++        )
++        if (reason.explicitFollowRestore) {
++            readAloudVisualFollowPaused = false
++        }
++        ReadAloudVisualTrace.record(
++            event = "restoreVisualStart",
++            detail = "reason=${reason.name} follow=$followDuringRestore wasPaused=$wasFollowPaused read=$chapterIndex/$chapterStart dur=${ReadBook.durChapterIndex}/${ReadBook.durPageIndex}/${ReadBook.durChapterPos} visual=[${binding.readView.readAloudVisualDebugState()}]"
++        )
++        if (ReadBook.durChapterIndex == chapterIndex) {
++            restoringReadAloudVisualPosition = false
++            val textChapter = ReadBook.curTextChapter ?: return false
++            if (!textChapter.isCompleted) return false
++            restoreReadAloudVisualInChapter(
++                textChapter = textChapter,
++                chapterStart = chapterStart,
++                restoreSerial = restoreSerial,
++                chapterIndex = chapterIndex,
++                restoreReason = reason,
++                followDuringRestore = followDuringRestore
++            )
++            return true
++        }
++        restoringReadAloudVisualPosition = true
++        ReadBook.openChapter(chapterIndex, chapterStart, true) {
++            if (!isCurrentReadAloudRestore(restoreSerial, chapterIndex, chapterStart)) {
++                clearReadAloudRestoring(restoreSerial)
++                return@openChapter
++            }
++            ReadBook.curTextChapter?.takeIf { it.isCompleted }?.let { textChapter ->
++                restoreReadAloudVisualInChapter(
++                    textChapter = textChapter,
++                    chapterStart = chapterStart,
++                    restoreSerial = restoreSerial,
++                    chapterIndex = chapterIndex,
++                    restoreReason = reason,
++                    followDuringRestore = followDuringRestore
++                )
++            }
++            clearReadAloudRestoring(restoreSerial)
++        }
++        handler.postDelayed({
++            clearReadAloudRestoring(restoreSerial)
++        }, 30000)
++        return true
++    }
++
++    private fun clearReadAloudRestoring(restoreSerial: Int) {
++        if (restoreSerial == readAloudRestoreLoadingSerial) {
++            restoringReadAloudVisualPosition = false
++        }
++    }
++
++    private fun cancelReadAloudVisualRestore() {
++        readAloudRestoreSerial++
++        readAloudRestoreLoadingSerial = 0
++        restoringReadAloudVisualPosition = false
++    }
++
++    private fun isCurrentReadAloudRestore(
++        restoreSerial: Int,
++        chapterIndex: Int,
++        chapterStart: Int
++    ): Boolean {
++        return restoreSerial == readAloudRestoreSerial &&
++                BaseReadAloudService.readAloudChapterIndex == chapterIndex &&
++                BaseReadAloudService.readAloudChapterStart.coerceAtLeast(0) == chapterStart
++    }
++
++    private fun restoreReadAloudVisualInChapter(
++        textChapter: TextChapter,
++        chapterStart: Int,
++        restoreSerial: Int,
++        chapterIndex: Int,
++        restoreReason: ReadAloudVisualRestoreReason,
++        followDuringRestore: Boolean
++    ) {
++        if (!isCurrentReadAloudRestore(restoreSerial, chapterIndex, chapterStart)) {
++            ReadAloudVisualTrace.record(
++                event = "restoreVisualSkip",
++                detail = "reason=stale source=${restoreReason.name} serial=$restoreSerial currentSerial=$readAloudRestoreSerial read=${BaseReadAloudService.readAloudChapterIndex}/${BaseReadAloudService.readAloudChapterStart} target=$chapterIndex/$chapterStart visual=[${binding.readView.readAloudVisualDebugState()}]"
++            )
++            return
++        }
++        val paragraph = findReadAloudParagraph(textChapter, chapterStart)
++        val pageIndex = paragraph?.firstLine?.textPage?.index
++            ?: textChapter.getPageIndexByCharIndex(chapterStart)
++        if (pageIndex < 0) return
++        val readAloudParagraphVisible = paragraph?.let {
++            readAloudParagraphVisibleOnScreen(textChapter, it)
++        } == true
++        if (!followDuringRestore) {
++            if (paragraph != null && readAloudParagraphVisible) {
++                updateReadAloudParagraphSpan(textChapter, paragraph)
++                binding.readView.curPage.invalidateContentView()
++            }
++            updateReadAloudVisualCenterIndicator()
++            ReadAloudVisualTrace.record(
++                event = "restoreVisualResult",
++                detail = "reason=${restoreReason.name} action=keepVisual follow=false visible=$readAloudParagraphVisible page=$pageIndex visual=[${binding.readView.readAloudVisualDebugState()}]"
++            )
++            return
++        }
++        if (paragraph != null && ReadAloudVisualPositioner.shouldRestoreWithoutPageJump(
++                readAloudParagraphVisible = readAloudParagraphVisible
++            )
++        ) {
++            upContent(resetPageOffset = false) {
++                if (!isCurrentReadAloudRestore(restoreSerial, chapterIndex, chapterStart)) {
++                    ReadAloudVisualTrace.record(
++                        event = "restoreVisualSkip",
++                        detail = "reason=staleInUpContent source=${restoreReason.name} serial=$restoreSerial currentSerial=$readAloudRestoreSerial read=${BaseReadAloudService.readAloudChapterIndex}/${BaseReadAloudService.readAloudChapterStart} target=$chapterIndex/$chapterStart visual=[${binding.readView.readAloudVisualDebugState()}]"
++                    )
++                    return@upContent
++                }
++                updateReadAloudParagraphSpan(textChapter, paragraph)
++                val followed = binding.readView.followReadAloudParagraph(paragraph)
++                if (!followed) {
++                    jumpToReadAloudPage(
++                        textChapter = textChapter,
++                        pageIndex = pageIndex,
++                        paragraph = paragraph,
++                        initialEffectiveOffset = null,
++                        afterJump = {
++                            ReadAloudVisualTrace.record(
++                                event = "restoreVisualResult",
++                                detail = "reason=${restoreReason.name} action=jumpVisible follow=true page=$pageIndex visual=[${binding.readView.readAloudVisualDebugState()}]"
++                            )
++                        },
++                        isCurrent = {
++                            isCurrentReadAloudRestore(restoreSerial, chapterIndex, chapterStart)
+                         }
+-                    } else {
+-                        ReadBook.readAloud()
+-                    }
++                    )
+                 } else {
+-                    ReadAloud.resume(this)
++                    ReadAloudVisualTrace.record(
++                        event = "restoreVisualResult",
++                        detail = "reason=${restoreReason.name} action=followVisible follow=true page=$pageIndex visual=[${binding.readView.readAloudVisualDebugState()}]"
++                    )
+                 }
+             }
++            return
++        }
++        val initialEffectiveOffset = paragraph?.let {
++            readAloudNextChapterInitialOffset(textChapter, pageIndex, it)
++        }
++        jumpToReadAloudPage(
++            textChapter = textChapter,
++            pageIndex = pageIndex,
++            paragraph = paragraph,
++            initialEffectiveOffset = initialEffectiveOffset,
++            afterJump = {
++                ReadAloudVisualTrace.record(
++                    event = "restoreVisualResult",
++                    detail = "reason=${restoreReason.name} action=jump follow=true page=$pageIndex initial=$initialEffectiveOffset visual=[${binding.readView.readAloudVisualDebugState()}]"
++                )
++            },
++            isCurrent = {
++                isCurrentReadAloudRestore(restoreSerial, chapterIndex, chapterStart)
++            }
++        )
++    }
+ 
+-            else -> ReadAloud.pause(this)
++    private fun jumpToReadAloudPage(
++        textChapter: TextChapter,
++        pageIndex: Int,
++        paragraph: TextParagraph?,
++        initialEffectiveOffset: Int?,
++        afterJump: () -> Unit = {},
++        isCurrent: () -> Boolean = { true }
++    ) {
++        ReadBook.withReadAloudPageChange {
++            ReadBook.skipToPage(pageIndex) {
++                if (!isCurrent()) return@skipToPage
++                paragraph?.let {
++                    updateReadAloudParagraphSpan(textChapter, it)
++                    if (!isCurrent()) return@skipToPage
++                    binding.readView.followReadAloudParagraph(it, initialEffectiveOffset)
++                }
++                if (isCurrent()) {
++                    afterJump()
++                }
++            }
++        }
++    }
++
++    private fun readAloudFromLineParagraphStart(line: TextLine) {
++        val textChapter = ReadBook.curTextChapter ?: run {
++            ReadAloudVisualTrace.record(
++                event = "readFromLineFallback",
++                detail = "reason=noTextChapter lineChapterPos=${line.chapterPosition} linePagePos=${line.pagePosition}"
++            )
++            ReadBook.readAloud(startPos = line.pagePosition)
++            return
++        }
++        val paragraph = textChapter.paragraphs.firstOrNull {
++            line.chapterPosition in it.chapterIndices
++        }
++        if (paragraph == null) {
++            ReadBook.durChapterPos = line.chapterPosition
++            ReadAloudVisualTrace.record(
++                event = "readFromLineFallback",
++                detail = "reason=noParagraph chapter=${textChapter.chapter.index} lineChapterPos=${line.chapterPosition} linePagePos=${line.pagePosition}"
++            )
++            ReadBook.readAloud(startPos = line.pagePosition)
++            return
+         }
++        val pageIndex = paragraph.firstLine.textPage.index
++        val startPos = paragraph.chapterPosition - textChapter.getReadLength(pageIndex)
++        ReadBook.durChapterPos = paragraph.chapterPosition
++        ReadAloudVisualTrace.record(
++            event = "readFromParagraph",
++            detail = "chapter=${textChapter.chapter.index} page=$pageIndex startPos=$startPos paragraph=${paragraph.chapterPosition}-${paragraph.chapterIndices.last} line=${line.chapterPosition}/${line.pagePosition}"
++        )
++        ReadBook.readAloud(pageIndex = pageIndex, startPos = startPos.coerceAtLeast(0))
+     }
+ 
+     override fun showHelp() {
+         showHelp("readMenuHelp")
+     }
+ 
++    override fun onReadAloudVisualFollowInterrupted() {
++        if (BaseReadAloudService.isPlay()) {
++            readAloudVisualFollowPaused = true
++            cancelReadAloudVisualRestore()
++        }
++        updateReadAloudVisualCenterIndicator(forceTrace = false)
++    }
++
+     /**
+      * 点击图片
+      */
+@@ -1906,23 +2226,23 @@ class ReadBookActivity : BaseReadBookActivity(),
+         observeEvent<Int>(EventBus.ALOUD_STATE) {
+             if (it == Status.STOP || it == Status.PAUSE) {
+                 ReadBook.curTextChapter?.let { textChapter ->
+-                    val page = textChapter.getPageByReadPos(ReadBook.durChapterPos)
+-                    if (page != null) {
+-                        page.removePageAloudSpan()
+-                        readView.upContent(resetPageOffset = false)
+-                    }
++                    clearReadAloudParagraphSpan(textChapter)
++                    readView.upContent(resetPageOffset = false)
+                 }
++                readView.setReadAloudVisualCenterIndicator(false)
+             }
+         }
++        observeEvent<Boolean>(EventBus.READ_ALOUD_MANUAL_STEP) {
++            readAloudVisualFollowPaused = false
++        }
+         observeEventSticky<Int>(EventBus.TTS_PROGRESS) { chapterStart ->
+-            lifecycleScope.launch(IO) {
++            lifecycleScope.launch {
+                 if (BaseReadAloudService.isPlay()) {
+-                    ReadBook.curTextChapter?.let { textChapter ->
+-                        val pageIndex = ReadBook.durPageIndex
+-                        val aloudSpanStart = chapterStart - textChapter.getReadLength(pageIndex)
+-                        textChapter.getPage(pageIndex)
+-                            ?.upPageAloudSpan(aloudSpanStart)
+-                        upContent()
++                    val readAloudChapterIndex = BaseReadAloudService.readAloudChapterIndex
++                    ReadBook.curTextChapter?.takeIf {
++                        readAloudChapterIndex < 0 || it.chapter.index == readAloudChapterIndex
++                    }?.let { textChapter ->
++                        updateReadAloudVisual(chapterStart, textChapter)
+                     }
+                 }
+             }
+@@ -1954,6 +2274,162 @@ class ReadBookActivity : BaseReadBookActivity(),
+         }
+     }
+ 
++    private fun updateReadAloudVisual(
++        chapterStart: Int,
++        textChapter: TextChapter
++    ) {
++        val paragraph = findReadAloudParagraph(textChapter, chapterStart) ?: return
++        val pageIndex = paragraph.firstLine.textPage.index
++        ReadAloudVisualTrace.record(
++            event = "ttsProgress",
++            detail = "chapterStart=$chapterStart read=${BaseReadAloudService.readAloudChapterIndex}/${BaseReadAloudService.readAloudChapterStart} textChapter=${textChapter.chapter.index} targetPage=$pageIndex dur=${ReadBook.durChapterIndex}/${ReadBook.durPageIndex}/${ReadBook.durChapterPos} paused=$readAloudVisualFollowPaused visual=[${binding.readView.readAloudVisualDebugState()}]"
++        )
++        if (readAloudVisualFollowPaused) {
++            if (ReadAloudVisualPositioner.shouldUpdateHighlightWhenFollowPaused(
++                    readAloudParagraphVisible = readAloudParagraphVisibleOnScreen(
++                        textChapter,
++                        paragraph
++                    )
++                )
++            ) {
++                updateReadAloudParagraphSpan(textChapter, paragraph)
++                binding.readView.curPage.invalidateContentView()
++            }
++            updateReadAloudVisualCenterIndicator()
++            return
++        }
++
++        val initialEffectiveOffset = readAloudNextChapterInitialOffset(textChapter, pageIndex, paragraph)
++        updateReadAloudParagraphSpan(textChapter, paragraph)
++        val followSucceeded = binding.readView.followReadAloudParagraph(
++            paragraph = paragraph,
++            initialEffectiveOffset = initialEffectiveOffset
++        )
++        val visualPage = binding.readView.curPage.textPage
++        val visualPageMatchesTarget = visualPage.chapterIndex == textChapter.chapter.index &&
++                visualPage.index == pageIndex
++        val fallback = ReadAloudVisualPositioner.followFallback(
++            followSucceeded,
++            visualPageMatchesTarget
++        )
++        ReadAloudVisualTrace.record(
++            event = "ttsProgressResult",
++            detail = "follow=$followSucceeded fallback=$fallback visualPageMatchesTarget=$visualPageMatchesTarget initial=$initialEffectiveOffset visual=[${binding.readView.readAloudVisualDebugState()}]"
++        )
++        when (fallback) {
++            ReadAloudVisualPositioner.FollowFallback.KeepVisualPage -> {
++                updateReadAloudVisualCenterIndicator()
++                return
++            }
++            ReadAloudVisualPositioner.FollowFallback.RefreshCurrentPage -> {
++                upContent(resetPageOffset = false) {
++                    updateReadAloudParagraphSpan(textChapter, paragraph)
++                    if (!binding.readView.followReadAloudParagraph(
++                            paragraph = paragraph,
++                            initialEffectiveOffset = initialEffectiveOffset
++                        )
++                    ) {
++                        binding.readView.curPage.invalidateContentView()
++                    }
++                    updateReadAloudVisualCenterIndicator()
++                }
++            }
++            ReadAloudVisualPositioner.FollowFallback.JumpToTargetPage -> {
++                jumpToReadAloudPage(
++                    textChapter = textChapter,
++                    pageIndex = pageIndex,
++                    paragraph = paragraph,
++                    initialEffectiveOffset = initialEffectiveOffset,
++                    afterJump = { updateReadAloudVisualCenterIndicator() }
++                )
++            }
++        }
++    }
++
++    private fun updateReadAloudVisualCenterIndicator(forceTrace: Boolean = true) {
++        val readAloudPositionVisible = readAloudPositionVisibleOnScreen()
++        val show = ReadAloudVisualPositioner.shouldShowVisualCenterIndicator(
++            visualPositionEnabled = AppConfig.readAloudVisualPosition,
++            readAloudPlaying = BaseReadAloudService.isPlay(),
++            readAloudPositionVisible = readAloudPositionVisible
++        )
++        val indicatorChanged = binding.readView.setReadAloudVisualCenterIndicator(show)
++        if (
++            ReadAloudVisualPositioner.shouldTraceCenterIndicatorEvaluation(
++                forceTrace = forceTrace,
++                indicatorChanged = indicatorChanged
++            )
++        ) {
++            ReadAloudVisualTrace.record(
++                event = "centerIndicatorEval",
++                detail = "show=$show visible=$readAloudPositionVisible visualPosition=${AppConfig.readAloudVisualPosition} playing=${BaseReadAloudService.isPlay()} visual=[${binding.readView.readAloudVisualDebugState()}]"
++            )
++        }
++    }
++
++    private fun readAloudNextChapterInitialOffset(
++        textChapter: TextChapter,
++        pageIndex: Int,
++        paragraph: TextParagraph
++    ): Int? {
++        if (!ReadAloudVisualPositioner.shouldUseChapterBoundaryInitialOffset(
++                targetPageIndex = pageIndex,
++                previousChapterLastPageVisible = binding.readView.containsVisibleChapterLastPage(
++                    textChapter.chapter.index - 1
++                )
++            )
++        ) {
++            return null
++        }
++        val firstLine = paragraph.textLines.firstOrNull() ?: return null
++        val lastLine = paragraph.textLines.lastOrNull() ?: return null
++        return ReadAloudVisualPositioner.chapterBoundaryInitialOffset(
++            paragraphTop = firstLine.lineTop,
++            paragraphBottom = lastLine.lineBottom,
++            visibleTop = ChapterProvider.paddingTop.toFloat(),
++            visibleHeight = ChapterProvider.visibleHeight.toFloat()
++        )
++    }
++
++    private fun readAloudParagraphVisibleOnScreen(
++        textChapter: TextChapter,
++        paragraph: TextParagraph
++    ): Boolean {
++        val chapterIndex = textChapter.chapter.index
++        return paragraph.textLines.any { line ->
++            binding.readView.containsVisibleChapterPosition(chapterIndex, line.chapterPosition)
++        }
++    }
++
++    private fun findReadAloudParagraph(
++        textChapter: TextChapter,
++        chapterStart: Int
++    ): TextParagraph? {
++        val readPosition = chapterStart.coerceAtLeast(0)
++        return textChapter.paragraphs.firstOrNull { readPosition in it.chapterIndices }
++            ?: textChapter.paragraphs.firstOrNull { readPosition <= it.chapterPosition }
++            ?: textChapter.paragraphs.lastOrNull()
++    }
++
++    private fun clearReadAloudParagraphSpan(textChapter: TextChapter) {
++        ReadAloudParagraphHighlighter.clear(readAloudHighlightedPageIndices) { index ->
++            textChapter.getPage(index)
++        }
++        readAloudHighlightedPageIndices = emptySet()
++    }
++
++    private fun updateReadAloudParagraphSpan(
++        textChapter: TextChapter,
++        paragraph: TextParagraph
++    ) {
++        readAloudHighlightedPageIndices = ReadAloudParagraphHighlighter.update(
++            paragraph = paragraph,
++            highlightedPageIndices = readAloudHighlightedPageIndices
++        ) { index ->
++            textChapter.getPage(index)
++        }
++    }
++
+     private fun upScreenTimeOut() {
+         val keepLightPrefer = getPrefString(PreferKey.keepLight)?.toInt() ?: 0
+         screenTimeOut = keepLightPrefer * 1000L
+diff --git a/app/src/main/java/io/legado/app/ui/book/read/config/ReadAloudConfigDialog.kt b/app/src/main/java/io/legado/app/ui/book/read/config/ReadAloudConfigDialog.kt
+index 8d15ab380..30d7fc410 100644
+--- a/app/src/main/java/io/legado/app/ui/book/read/config/ReadAloudConfigDialog.kt
++++ b/app/src/main/java/io/legado/app/ui/book/read/config/ReadAloudConfigDialog.kt
+@@ -8,6 +8,7 @@ import android.os.Bundle
+ import android.view.LayoutInflater
+ import android.view.View
+ import android.view.ViewGroup
++import android.widget.Toast
+ import android.widget.LinearLayout
+ import androidx.preference.ListPreference
+ import androidx.preference.Preference
+@@ -23,6 +24,7 @@ import io.legado.app.lib.prefs.SwitchPreference
+ import io.legado.app.lib.prefs.fragment.PreferenceFragment
+ import io.legado.app.model.ReadAloud
+ import io.legado.app.service.BaseReadAloudService
++import io.legado.app.ui.book.read.page.ReadAloudVisualTrace
+ import io.legado.app.ui.widget.number.NumberPickerDialog
+ import io.legado.app.utils.GSON
+ import io.legado.app.utils.StringUtils
+@@ -143,6 +145,13 @@ class ReadAloudConfigDialog : BasePrefDialogFragment() {
+ 
+                 PreferKey.ttsEngine -> showDialogFragment(SpeakEngineDialog())
+                 "sysTtsConfig" -> IntentHelp.openTTSSetting()
++                "saveReadAloudVisualLog" -> {
++                    val result = ReadAloudVisualTrace.export(requireContext())
++                    requireContext().toastOnUi(
++                        "已保存朗读定位日志: ${result.displayPath}",
++                        Toast.LENGTH_LONG
++                    )
++                }
+             }
+             return super.onPreferenceTreeClick(preference)
+         }
+diff --git a/app/src/main/java/io/legado/app/ui/book/read/config/ReadAloudDialog.kt b/app/src/main/java/io/legado/app/ui/book/read/config/ReadAloudDialog.kt
+index 631765bb2..b6f55687f 100644
+--- a/app/src/main/java/io/legado/app/ui/book/read/config/ReadAloudDialog.kt
++++ b/app/src/main/java/io/legado/app/ui/book/read/config/ReadAloudDialog.kt
+@@ -108,8 +108,8 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
+             dismissAllowingStateLoss()
+         }
+         ivPlayPause.setOnClickListener { callBack?.onClickReadAloud() }
+-        ivPlayPrev.setOnClickListener { ReadAloud.prevParagraph(requireContext()) }
+-        ivPlayNext.setOnClickListener { ReadAloud.nextParagraph(requireContext()) }
++        ivPlayPrev.setOnClickListener { callBack?.readAloudPreviousParagraph() }
++        ivPlayNext.setOnClickListener { callBack?.readAloudNextParagraph() }
+         ivCatalog.setOnClickListener { callBack?.openChapterList() }
+         ivToBackstage.setOnClickListener { callBack?.finish() }
+         cbTtsFollowSys.setOnCheckedChangeListener { _, isChecked ->
+@@ -256,6 +256,8 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
+         fun showMenuBar()
+         fun openChapterList()
+         fun onClickReadAloud()
++        fun readAloudPreviousParagraph()
++        fun readAloudNextParagraph()
+         fun finish()
+     }
+-}
+\ No newline at end of file
++}
+diff --git a/app/src/main/java/io/legado/app/ui/book/read/page/ContentTextView.kt b/app/src/main/java/io/legado/app/ui/book/read/page/ContentTextView.kt
+index 855aac3be..d1224b295 100644
+--- a/app/src/main/java/io/legado/app/ui/book/read/page/ContentTextView.kt
++++ b/app/src/main/java/io/legado/app/ui/book/read/page/ContentTextView.kt
+@@ -2,6 +2,7 @@ package io.legado.app.ui.book.read.page
+ 
+ import android.content.Context
+ import android.graphics.Canvas
++import android.graphics.DashPathEffect
+ import android.graphics.Paint
+ import android.util.AttributeSet
+ import android.view.MotionEvent
+@@ -15,6 +16,7 @@ import io.legado.app.ui.association.OpenUrlConfirmActivity
+ import io.legado.app.ui.book.read.page.delegate.PageDelegate
+ import io.legado.app.ui.book.read.page.entities.TextLine
+ import io.legado.app.ui.book.read.page.entities.TextPage
++import io.legado.app.ui.book.read.page.entities.TextParagraph
+ import io.legado.app.ui.book.read.page.entities.TextPos
+ import io.legado.app.ui.book.read.page.entities.column.BaseColumn
+ import io.legado.app.ui.book.read.page.entities.column.ButtonColumn
+@@ -62,8 +64,11 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
+     private val pageFactory get() = callBack.pageFactory
+     private val pageDelegate get() = callBack.pageDelegate
+     private var pageOffset = 0
++    private var readAloudPageOffset = 0
+     private var autoPager: AutoPager? = null
+     private var isScroll = false
++    private var readAloudFollowActive = false
++    private var readAloudVisualCenterIndicator = false
+     private val renderRunnable by lazy { Runnable { preRenderPage() } }
+     private var lastClickTime = 0L
+     private var doubleClick = false
+@@ -74,6 +79,15 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
+             isAntiAlias = AppConfig.useAntiAlias
+         }
+     }
++    private val readAloudVisualCenterPaint by lazy {
++        Paint(Paint.ANTI_ALIAS_FLAG).apply {
++            color = context.getCompatColor(R.color.primaryText)
++            alpha = 140
++            strokeWidth = 1.5f.dpToPx()
++            style = Paint.Style.STROKE
++            pathEffect = DashPathEffect(floatArrayOf(8f.dpToPx(), 6f.dpToPx()), 0f)
++        }
++    }
+ 
+     init {
+         callBack = activity as CallBack
+@@ -108,28 +122,100 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
+         check(!visibleRect.isEmpty) { "visibleRect 为空" }
+         canvas.clipRect(visibleRect)
+         drawPage(canvas)
++        drawReadAloudVisualCenterIndicator(canvas)
+     }
+ 
+     /**
+      * 绘制页面
+      */
+     private fun drawPage(canvas: Canvas) {
+-        var relativeOffset = relativeOffset(0)
++        var relativeOffset = contentOffset(0)
++        if (readAloudFollowActive) {
++            drawReadAloudPreviousPage(canvas, relativeOffset)
++        }
+         textPage.draw(this, canvas, relativeOffset)
+-        if (!callBack.isScroll) return
++        if (!drawContinuousPages()) return
++        if (readAloudFollowActive && !callBack.isScroll) {
++            drawReadAloudFollowPages(canvas, relativeOffset)
++            return
++        }
+         //滚动翻页
+         if (!pageFactory.hasNext()) return
+-        val textPage1 = relativePage(1)
++        val textPage1 = relativeDrawPage(1)
+         relativeOffset += textPage.height
+         textPage1.draw(this, canvas, relativeOffset)
+         if (!pageFactory.hasNextPlus()) return
+         relativeOffset += textPage1.height
+         if (relativeOffset < ChapterProvider.visibleHeight) {
+-            val textPage2 = relativePage(2)
++            val textPage2 = relativeDrawPage(2)
++            textPage2.draw(this, canvas, relativeOffset)
++        }
++    }
++
++    private fun relativeDrawPage(relativePos: Int): TextPage {
++        val textChapter = textPage.getTextChapter()
++        return when (relativePos) {
++            0 -> textPage
++            1 -> textChapter.getPage(textPage.index + 1) ?: pageFactory.nextPage
++            else -> textChapter.getPage(textPage.index + 2) ?: pageFactory.nextPlusPage
++        }
++    }
++
++    private fun relativeDrawOffset(relativePos: Int): Float {
++        var offset = pageOffset.toFloat()
++        if (relativePos >= 1) {
++            offset += textPage.height
++        }
++        if (relativePos >= 2) {
++            offset += relativeDrawPage(1).height
++        }
++        return offset
++    }
++
++    private fun drawContentOffset(relativePos: Int): Float {
++        return ReadAloudVisualPositioner.contentOffset(
++            pageOffset = relativeDrawOffset(relativePos),
++            readAloudOffset = readAloudPageOffset.toFloat(),
++            readAloudActive = readAloudFollowActive
++        )
++    }
++
++    private fun drawReadAloudFollowPages(canvas: Canvas, currentOffset: Float) {
++        val textChapter = textPage.getTextChapter()
++        var relativeOffset = currentOffset
++        val textPage1 = textChapter.getPage(textPage.index + 1) ?: return
++        relativeOffset += textPage.height
++        textPage1.draw(this, canvas, relativeOffset)
++        val textPage2 = textChapter.getPage(textPage.index + 2) ?: return
++        relativeOffset += textPage1.height
++        if (relativeOffset < ChapterProvider.visibleHeight) {
+             textPage2.draw(this, canvas, relativeOffset)
+         }
+     }
+ 
++    private fun drawReadAloudPreviousPage(canvas: Canvas, currentOffset: Float) {
++        if (!pageFactory.hasPrev()) return
++        val previousPage = textPage.getTextChapter().getPage(textPage.index - 1)
++            ?: pageFactory.prevPage
++        val previousOffset = ReadAloudVisualPositioner.previousPageOffset(
++            currentOffset = currentOffset,
++            previousPageHeight = previousPage.height
++        ) ?: return
++        previousPage.draw(this, canvas, previousOffset)
++    }
++
++    private fun drawReadAloudVisualCenterIndicator(canvas: Canvas) {
++        if (!readAloudVisualCenterIndicator) return
++        val centerY = ChapterProvider.paddingTop + ChapterProvider.visibleHeight / 2f
++        canvas.drawLine(
++            visibleRect.left.toFloat(),
++            centerY,
++            visibleRect.right.toFloat(),
++            centerY,
++            readAloudVisualCenterPaint
++        )
++    }
++
+     override fun computeScroll() {
+         pageDelegate?.computeScroll()
+         autoPager?.computeOffset()
+@@ -143,6 +229,8 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
+      * pageOffset + textPage.height 为 textPage 下方的高度
+      */
+     fun scroll(mOffset: Int) {
++        val beforeState = readAloudVisualDebugState()
++        resetReadAloudFollowByUserScroll()
+         pageOffset += mOffset
+         if (longScreenshot) {
+             scrollY += -mOffset
+@@ -173,6 +261,11 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
+                 pageDelegate?.abortAnim()
+             }
+         }
++        ReadAloudVisualTrace.record(
++            event = "scroll",
++            detail = "mOffset=$mOffset before=[$beforeState] after=[${readAloudVisualDebugState()}]"
++        )
++        callBack.onReadAloudVisualFollowInterrupted()
+         postInvalidate()
+     }
+ 
+@@ -194,7 +287,7 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
+                 invalidate = true
+             }
+             if (hasNextPlus() && nextPlusPage.render(view) && callBack.isScroll
+-                && relativeOffset(2) < ChapterProvider.visibleHeight
++                && contentOffset(2) < ChapterProvider.visibleHeight
+             ) {
+                 invalidate = true
+             }
+@@ -209,7 +302,182 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
+      * 重置滚动位置
+      */
+     fun resetPageOffset() {
+-        pageOffset = 0
++        applyReadAloudFollowState(
++            ReadAloudVisualPositioner.resetPageState(readAloudFollowState())
++        )
++    }
++
++    fun clearReadAloudVisualFollow() {
++        val state = readAloudFollowState()
++        val cleared = ReadAloudVisualPositioner.clearFollowState(state)
++        if (state == cleared) return
++        applyReadAloudFollowState(cleared)
++        ReadAloudVisualTrace.record("clearFollow", readAloudVisualDebugState())
++        postInvalidate()
++    }
++
++    private fun readAloudFollowState(): ReadAloudVisualPositioner.FollowState {
++        return ReadAloudVisualPositioner.FollowState(
++            pageOffset = pageOffset,
++            readAloudOffset = readAloudPageOffset,
++            active = readAloudFollowActive
++        )
++    }
++
++    private fun applyReadAloudFollowState(state: ReadAloudVisualPositioner.FollowState) {
++        pageOffset = state.pageOffset
++        readAloudPageOffset = state.readAloudOffset
++        readAloudFollowActive = state.active
++    }
++
++    fun readAloudNextChapterOffset(): Int? {
++        return ReadAloudVisualPositioner.nextChapterOffset(
++            previousEffectiveOffset = contentOffset(0),
++            previousPageHeight = textPage.height
++        )
++    }
++
++    fun followReadAloudParagraph(
++        paragraph: TextParagraph,
++        initialEffectiveOffset: Int? = null
++    ): Boolean {
++        val firstLine = paragraph.textLines.firstOrNull() ?: return false
++        val lastLine = paragraph.textLines.lastOrNull() ?: return false
++        if (firstLine.textPage.chapterIndex != textPage.chapterIndex) {
++            ReadAloudVisualTrace.record(
++                event = "followFail",
++                detail = "reason=chapterMismatch target=${firstLine.textPage.chapterIndex}/${firstLine.textPage.index} ${readAloudVisualDebugState()}"
++            )
++            return false
++        }
++        val paragraphTop = lineTopInVisualStream(firstLine) ?: run {
++            ReadAloudVisualTrace.record(
++                event = "followFail",
++                detail = "reason=topOutsideVisualStream target=${firstLine.textPage.chapterIndex}/${firstLine.textPage.index} ${readAloudVisualDebugState()}"
++            )
++            return false
++        }
++        val paragraphBottom = lineBottomInVisualStream(lastLine) ?: run {
++            ReadAloudVisualTrace.record(
++                event = "followFail",
++                detail = "reason=bottomOutsideVisualStream target=${lastLine.textPage.chapterIndex}/${lastLine.textPage.index} ${readAloudVisualDebugState()}"
++            )
++            return false
++        }
++        val effectiveOffset = ReadAloudVisualPositioner.calculateOffset(
++            paragraphTop = paragraphTop,
++            paragraphBottom = paragraphBottom,
++            visibleTop = ChapterProvider.paddingTop.toFloat(),
++            visibleHeight = ChapterProvider.visibleHeight.toFloat(),
++            currentOffset = initialEffectiveOffset?.toFloat() ?: contentOffset(0)
++        )
++        readAloudPageOffset = effectiveOffset - pageOffset
++        readAloudFollowActive = true
++        val pageShift = materializeReadAloudFollowAnchor(paragraph.chapterPosition)
++        ReadAloudVisualTrace.record(
++            event = "follow",
++            detail = "target=${firstLine.textPage.chapterIndex}/${firstLine.textPage.index} paragraph=${paragraph.chapterPosition}-${paragraph.chapterIndices.last} top=$paragraphTop bottom=$paragraphBottom initial=$initialEffectiveOffset effective=$effectiveOffset pageShift=$pageShift ${readAloudVisualDebugState()}"
++        )
++        postInvalidate()
++        return true
++    }
++
++    private fun lineTopInVisualStream(line: TextLine): Float? {
++        return pageTopInVisualStream(line.textPage.index)?.plus(line.lineTop)
++    }
++
++    private fun lineBottomInVisualStream(line: TextLine): Float? {
++        return pageTopInVisualStream(line.textPage.index)?.plus(line.lineBottom)
++    }
++
++    private fun pageTopInVisualStream(pageIndex: Int): Float? {
++        val textChapter = textPage.getTextChapter()
++        return ReadAloudVisualPositioner.relativePageTop(
++            currentPageIndex = textPage.index,
++            targetPageIndex = pageIndex,
++            previousPageHeight = textChapter.getPage(textPage.index - 1)?.height,
++            currentPageHeight = textPage.height,
++            nextPageHeight = textChapter.getPage(textPage.index + 1)?.height
++        )
++    }
++
++    private fun drawContinuousPages(): Boolean {
++        return callBack.isScroll || readAloudFollowActive
++    }
++
++    private fun resetReadAloudFollowByUserScroll() {
++        if (!readAloudFollowActive && readAloudPageOffset == 0) return
++        val textChapter = textPage.getTextChapter()
++        val previousPage = textChapter.getPage(textPage.index - 1)
++        val nextPage = textChapter.getPage(textPage.index + 1)
++        val nextPlusPage = textChapter.getPage(textPage.index + 2)
++        val interruption = ReadAloudVisualPositioner.interruptFollowByUserScroll(
++            state = readAloudFollowState(),
++            previousPageHeight = previousPage?.height,
++            currentPageHeight = textPage.height,
++            nextPageHeight = nextPage?.height,
++            nextPlusPageHeight = nextPlusPage?.height
++        )
++        applyReadAloudMaterializedFollow(interruption, previousPage, nextPage, nextPlusPage)
++        ReadAloudVisualTrace.record(
++            "interruptFollowByScroll",
++            "pageShift=${interruption.pageShift} ${readAloudVisualDebugState()}"
++        )
++    }
++
++    private fun materializeReadAloudFollowAnchor(chapterPosition: Int): Int {
++        val textChapter = textPage.getTextChapter()
++        val previousPage = textChapter.getPage(textPage.index - 1)
++        val nextPage = textChapter.getPage(textPage.index + 1)
++        val nextPlusPage = textChapter.getPage(textPage.index + 2)
++        val materialized = ReadAloudVisualPositioner.materializeFollowAnchor(
++            state = readAloudFollowState(),
++            previousPageHeight = previousPage?.height,
++            currentPageHeight = textPage.height,
++            nextPageHeight = nextPage?.height,
++            nextPlusPageHeight = nextPlusPage?.height
++        )
++        applyReadAloudMaterializedFollow(
++            interruption = materialized,
++            previousPage = previousPage,
++            nextPage = nextPage,
++            nextPlusPage = nextPlusPage,
++            chapterPosition = chapterPosition
++        )
++        return materialized.pageShift
++    }
++
++    private fun applyReadAloudMaterializedFollow(
++        interruption: ReadAloudVisualPositioner.InterruptedFollowState,
++        previousPage: TextPage?,
++        nextPage: TextPage?,
++        nextPlusPage: TextPage?,
++        chapterPosition: Int? = null
++    ) {
++        when (interruption.pageShift) {
++            -1 -> previousPage
++            1 -> nextPage
++            2 -> nextPlusPage
++            else -> null
++        }?.let {
++            ReadBook.withReadAloudPageChange {
++                ReadBook.setPageIndex(it.index, chapterPosition)
++            }
++            textPage = it
++        }
++        applyReadAloudFollowState(interruption.state)
++    }
++
++    fun setReadAloudVisualCenterIndicator(show: Boolean): Boolean {
++        if (readAloudVisualCenterIndicator == show) return false
++        readAloudVisualCenterIndicator = show
++        ReadAloudVisualTrace.record("centerIndicator", "show=$show ${readAloudVisualDebugState()}")
++        postInvalidate()
++        return true
++    }
++
++    fun readAloudVisualDebugState(): String {
++        return "textPage=${textPage.chapterIndex}/${textPage.index} pageSize=${textPage.pageSize} pageOffset=$pageOffset readAloudOffset=$readAloudPageOffset active=$readAloudFollowActive indicator=$readAloudVisualCenterIndicator content0=${drawContentOffset(0)} content1=${drawContentOffset(1)} content2=${drawContentOffset(2)}"
+     }
+ 
+     /**
+@@ -402,7 +670,7 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
+         if (!visibleRect.contains(x, y)) return
+         var relativeOffset: Float
+         for (relativePos in 0..2) {
+-            relativeOffset = relativeOffset(relativePos)
++            relativeOffset = contentOffset(relativePos)
+             if (relativePos > 0) {
+                 //滚动翻页
+                 if (!callBack.isScroll) return
+@@ -445,7 +713,7 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
+     ) {
+         var relativeOffset: Float
+         for (relativePos in 0..2) {
+-            relativeOffset = relativeOffset(relativePos)
++            relativeOffset = contentOffset(relativePos)
+             if (relativePos > 0) {
+                 //滚动翻页
+                 if (!callBack.isScroll) return
+@@ -494,7 +762,7 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
+         val visiblePage = TextPage()
+         var relativeOffset: Float
+         for (relativePos in 0..2) {
+-            relativeOffset = relativeOffset(relativePos)
++            relativeOffset = contentOffset(relativePos)
+             if (relativePos > 0) {
+                 //滚动翻页
+                 if (!callBack.isScroll) break
+@@ -519,7 +787,7 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
+     fun getReadAloudPos(): Pair<Int, TextLine>? {
+         var relativeOffset: Float
+         for (relativePos in 0..2) {
+-            relativeOffset = relativeOffset(relativePos)
++            relativeOffset = contentOffset(relativePos)
+             if (relativePos > 0) {
+                 //滚动翻页
+                 if (!callBack.isScroll) break
+@@ -541,6 +809,80 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
+         return null
+     }
+ 
++    fun getReadAloudCenterPos(): Pair<Int, TextLine>? {
++        val centerY = ChapterProvider.paddingTop + ChapterProvider.visibleHeight / 2f
++        var nearestLine: Pair<Int, TextLine>? = null
++        var nearestDistance = Float.MAX_VALUE
++        var relativeOffset: Float
++        for (relativePos in 0..2) {
++            relativeOffset = drawContentOffset(relativePos)
++            if (relativePos > 0) {
++                if (!callBack.isScroll) break
++                if (relativeOffset >= ChapterProvider.visibleHeight) break
++            }
++            val textPage = relativeDrawPage(relativePos)
++            for (textLine in textPage.lines) {
++                if (!textLine.isVisible(relativeOffset)) continue
++                val top = textLine.lineTop + relativeOffset
++                val bottom = textLine.lineBottom + relativeOffset
++                val visibleLine = textLine.copy().apply {
++                    lineTop = top
++                    lineBottom = bottom
++                }
++                if (centerY > top && centerY < bottom) {
++                    return textPage.chapterIndex to visibleLine
++                }
++                val distance = when {
++                    centerY < top -> top - centerY
++                    else -> centerY - bottom
++                }
++                if (distance < nearestDistance) {
++                    nearestDistance = distance
++                    nearestLine = textPage.chapterIndex to visibleLine
++                }
++            }
++        }
++        return nearestLine ?: getReadAloudPos()
++    }
++
++    fun containsVisibleChapterPosition(chapterIndex: Int, chapterPosition: Int): Boolean {
++        var relativeOffset: Float
++        for (relativePos in 0..2) {
++            relativeOffset = drawContentOffset(relativePos)
++            if (relativePos > 0) {
++                if (!callBack.isScroll) break
++                if (relativeOffset >= ChapterProvider.visibleHeight) break
++            }
++            val textPage = relativeDrawPage(relativePos)
++            if (textPage.chapterIndex != chapterIndex) continue
++            for (textLine in textPage.lines) {
++                if (textLine.isVisible(relativeOffset) && chapterPosition in textLine.chapterIndices) {
++                    return true
++                }
++            }
++        }
++        return false
++    }
++
++    fun containsVisibleChapterLastPage(chapterIndex: Int): Boolean {
++        var relativeOffset: Float
++        for (relativePos in 0..2) {
++            relativeOffset = drawContentOffset(relativePos)
++            if (relativePos > 0) {
++                if (!callBack.isScroll) break
++                if (relativeOffset >= ChapterProvider.visibleHeight) break
++            }
++            val textPage = relativeDrawPage(relativePos)
++            if (textPage.chapterIndex != chapterIndex || textPage.index != textPage.pageSize - 1) {
++                continue
++            }
++            if (textPage.lines.any { it.isVisible(relativeOffset) }) {
++                return true
++            }
++        }
++        return false
++    }
++
+     /**
+      * 选择开始文字
+      */
+@@ -725,6 +1067,14 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
+         }
+     }
+ 
++    private fun contentOffset(relativePos: Int): Float {
++        return ReadAloudVisualPositioner.contentOffset(
++            pageOffset = relativeOffset(relativePos),
++            readAloudOffset = readAloudPageOffset.toFloat(),
++            readAloudActive = readAloudFollowActive
++        )
++    }
++
+     fun relativePage(relativePos: Int): TextPage {
+         return when (relativePos) {
+             0 -> textPage
+@@ -783,5 +1133,6 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
+         fun onLongScreenshotTouchEvent(event: MotionEvent): Boolean
+         fun oldClickImg(src: String): Boolean
+         fun clickImg(click: String, src: String)
++        fun onReadAloudVisualFollowInterrupted()
+     }
+ }
+diff --git a/app/src/main/java/io/legado/app/ui/book/read/page/PageView.kt b/app/src/main/java/io/legado/app/ui/book/read/page/PageView.kt
+index b3901e4c9..f9f4dd591 100644
+--- a/app/src/main/java/io/legado/app/ui/book/read/page/PageView.kt
++++ b/app/src/main/java/io/legado/app/ui/book/read/page/PageView.kt
+@@ -23,6 +23,7 @@ import io.legado.app.model.ReadBook
+ import io.legado.app.ui.book.read.ReadBookActivity
+ import io.legado.app.ui.book.read.page.entities.TextLine
+ import io.legado.app.ui.book.read.page.entities.TextPage
++import io.legado.app.ui.book.read.page.entities.TextParagraph
+ import io.legado.app.ui.book.read.page.entities.TextPos
+ import io.legado.app.ui.book.read.page.provider.ChapterProvider
+ import io.legado.app.ui.widget.BatteryView
+@@ -444,6 +445,29 @@ class PageView(context: Context) : FrameLayout(context) {
+         binding.contentTextView.resetPageOffset()
+     }
+ 
++    fun clearReadAloudVisualFollow() {
++        binding.contentTextView.clearReadAloudVisualFollow()
++    }
++
++    fun readAloudNextChapterOffset(): Int? {
++        return binding.contentTextView.readAloudNextChapterOffset()
++    }
++
++    fun followReadAloudParagraph(
++        paragraph: TextParagraph,
++        initialEffectiveOffset: Int? = null
++    ): Boolean {
++        return binding.contentTextView.followReadAloudParagraph(paragraph, initialEffectiveOffset)
++    }
++
++    fun setReadAloudVisualCenterIndicator(show: Boolean): Boolean {
++        return binding.contentTextView.setReadAloudVisualCenterIndicator(show)
++    }
++
++    fun readAloudVisualDebugState(): String {
++        return binding.contentTextView.readAloudVisualDebugState()
++    }
++
+     /**
+      * 设置进度
+      */
+@@ -530,6 +554,18 @@ class PageView(context: Context) : FrameLayout(context) {
+         return binding.contentTextView.getReadAloudPos()
+     }
+ 
++    fun getReadAloudCenterPos(): Pair<Int, TextLine>? {
++        return binding.contentTextView.getReadAloudCenterPos()
++    }
++
++    fun containsVisibleChapterPosition(chapterIndex: Int, chapterPosition: Int): Boolean {
++        return binding.contentTextView.containsVisibleChapterPosition(chapterIndex, chapterPosition)
++    }
++
++    fun containsVisibleChapterLastPage(chapterIndex: Int): Boolean {
++        return binding.contentTextView.containsVisibleChapterLastPage(chapterIndex)
++    }
++
+     fun markAsMainView() {
+         isMainView = true
+         binding.contentTextView.isMainView = true
+@@ -600,4 +636,4 @@ class PageView(context: Context) : FrameLayout(context) {
+     val selectedText: String get() = binding.contentTextView.getSelectedText()
+ 
+     val selectStartPos get() = binding.contentTextView.selectStart
+-}
+\ No newline at end of file
++}
+diff --git a/app/src/main/java/io/legado/app/ui/book/read/page/ReadAloudParagraphHighlighter.kt b/app/src/main/java/io/legado/app/ui/book/read/page/ReadAloudParagraphHighlighter.kt
+new file mode 100644
+index 000000000..9f65fd8f1
+--- /dev/null
++++ b/app/src/main/java/io/legado/app/ui/book/read/page/ReadAloudParagraphHighlighter.kt
+@@ -0,0 +1,27 @@
++package io.legado.app.ui.book.read.page
++
++import io.legado.app.ui.book.read.page.entities.TextPage
++import io.legado.app.ui.book.read.page.entities.TextParagraph
++
++internal object ReadAloudParagraphHighlighter {
++
++    fun update(
++        paragraph: TextParagraph,
++        highlightedPageIndices: Set<Int>,
++        getPage: (Int) -> TextPage?
++    ): Set<Int> {
++        val pageIndices = paragraph.textLines.map { it.textPage.index }.toSet()
++        clear(highlightedPageIndices + pageIndices, getPage)
++        paragraph.textLines.forEach { it.isReadAloud = true }
++        return pageIndices
++    }
++
++    fun clear(
++        highlightedPageIndices: Set<Int>,
++        getPage: (Int) -> TextPage?
++    ) {
++        highlightedPageIndices.forEach { index ->
++            getPage(index)?.removePageAloudSpan()
++        }
++    }
++}
+diff --git a/app/src/main/java/io/legado/app/ui/book/read/page/ReadAloudVisualPositioner.kt b/app/src/main/java/io/legado/app/ui/book/read/page/ReadAloudVisualPositioner.kt
+new file mode 100644
+index 000000000..731e91ef6
+--- /dev/null
++++ b/app/src/main/java/io/legado/app/ui/book/read/page/ReadAloudVisualPositioner.kt
+@@ -0,0 +1,272 @@
++package io.legado.app.ui.book.read.page
++
++import kotlin.math.roundToInt
++
++internal object ReadAloudVisualPositioner {
++
++    private const val SAFE_EDGE_RATIO = 0.10f
++
++    data class FollowState(
++        val pageOffset: Int,
++        val readAloudOffset: Int,
++        val active: Boolean
++    )
++
++    data class InterruptedFollowState(
++        val pageShift: Int,
++        val state: FollowState
++    )
++
++    enum class FollowFallback {
++        KeepVisualPage,
++        RefreshCurrentPage,
++        JumpToTargetPage
++    }
++
++    fun calculateOffset(
++        paragraphTop: Float,
++        paragraphBottom: Float,
++        visibleTop: Float,
++        visibleHeight: Float,
++        currentOffset: Float = 0f
++    ): Int {
++        if (visibleHeight <= 0f || paragraphBottom <= paragraphTop) {
++            return currentOffset.roundToInt()
++        }
++        val paragraphHeight = paragraphBottom - paragraphTop
++        val safeTop = visibleTop + visibleHeight * SAFE_EDGE_RATIO
++        val safeBottom = visibleTop + visibleHeight * (1f - SAFE_EDGE_RATIO)
++        if (paragraphHeight > safeBottom - safeTop) {
++            return (visibleTop - paragraphTop).roundToInt()
++        }
++        val currentTop = paragraphTop + currentOffset
++        val currentBottom = paragraphBottom + currentOffset
++        return when {
++            currentTop < visibleTop -> (safeTop - paragraphTop).roundToInt()
++            currentBottom >= safeBottom -> (safeTop - paragraphTop).roundToInt()
++            else -> currentOffset.roundToInt()
++        }
++    }
++
++    fun relativePageTop(
++        currentPageIndex: Int,
++        targetPageIndex: Int,
++        previousPageHeight: Float?,
++        currentPageHeight: Float,
++        nextPageHeight: Float?
++    ): Float? {
++        return when (targetPageIndex - currentPageIndex) {
++            -1 -> previousPageHeight?.takeIf { it > 0f }?.let { -it }
++            0 -> 0f
++            1 -> currentPageHeight.takeIf { it > 0f }
++            2 -> {
++                val currentHeight = currentPageHeight.takeIf { it > 0f } ?: return null
++                val nextHeight = nextPageHeight?.takeIf { it > 0f } ?: return null
++                currentHeight + nextHeight
++            }
++            else -> null
++        }
++    }
++
++    fun previousPageOffset(
++        currentOffset: Float,
++        previousPageHeight: Float
++    ): Float? {
++        if (currentOffset <= 0f || previousPageHeight <= 0f) {
++            return null
++        }
++        return currentOffset - previousPageHeight
++    }
++
++    fun nextChapterOffset(
++        previousEffectiveOffset: Float,
++        previousPageHeight: Float
++    ): Int? {
++        if (previousPageHeight <= 0f) {
++            return null
++        }
++        return (previousEffectiveOffset + previousPageHeight).roundToInt()
++    }
++
++    fun chapterBoundaryInitialOffset(
++        paragraphTop: Float,
++        paragraphBottom: Float,
++        visibleTop: Float,
++        visibleHeight: Float
++    ): Int? {
++        if (visibleHeight <= 0f || paragraphBottom <= paragraphTop) {
++            return null
++        }
++        val safeTop = visibleTop + visibleHeight * SAFE_EDGE_RATIO
++        return calculateOffset(
++            paragraphTop = paragraphTop,
++            paragraphBottom = paragraphBottom,
++            visibleTop = visibleTop,
++            visibleHeight = visibleHeight,
++            currentOffset = safeTop - paragraphTop
++        )
++    }
++
++    fun shouldUseChapterBoundaryInitialOffset(
++        targetPageIndex: Int,
++        previousChapterLastPageVisible: Boolean
++    ): Boolean {
++        return targetPageIndex == 0 && previousChapterLastPageVisible
++    }
++
++    fun shouldUpdateCenterIndicatorOnPageChanged(fromReadAloud: Boolean): Boolean {
++        return !fromReadAloud
++    }
++
++    fun shouldTraceCenterIndicatorEvaluation(
++        forceTrace: Boolean,
++        indicatorChanged: Boolean
++    ): Boolean {
++        return forceTrace || indicatorChanged
++    }
++
++    fun contentOffset(
++        pageOffset: Float,
++        readAloudOffset: Float,
++        readAloudActive: Boolean
++    ): Float {
++        return pageOffset + if (readAloudActive) readAloudOffset else 0f
++    }
++
++    fun shouldStepFromVisualCenter(
++        visualPositionEnabled: Boolean,
++        readAloudRunning: Boolean,
++        readAloudPositionVisible: Boolean
++    ): Boolean {
++        return visualPositionEnabled && readAloudRunning && !readAloudPositionVisible
++    }
++
++    fun shouldShowVisualCenterIndicator(
++        visualPositionEnabled: Boolean,
++        readAloudPlaying: Boolean,
++        readAloudPositionVisible: Boolean
++    ): Boolean {
++        return visualPositionEnabled && readAloudPlaying && !readAloudPositionVisible
++    }
++
++    fun followFallback(
++        followSucceeded: Boolean,
++        visualPageMatchesTarget: Boolean
++    ): FollowFallback {
++        if (followSucceeded) return FollowFallback.KeepVisualPage
++        return if (visualPageMatchesTarget) {
++            FollowFallback.RefreshCurrentPage
++        } else {
++            FollowFallback.JumpToTargetPage
++        }
++    }
++
++    fun shouldUpdateHighlightWhenFollowPaused(
++        readAloudParagraphVisible: Boolean
++    ): Boolean {
++        return readAloudParagraphVisible
++    }
++
++    @Suppress("UNUSED_PARAMETER")
++    fun shouldRestoreStoredPositionOnResume(
++        readAloudPaused: Boolean,
++        visualPageChanged: Boolean
++    ): Boolean {
++        return readAloudPaused
++    }
++
++    fun shouldRestoreWithoutPageJump(
++        readAloudParagraphVisible: Boolean
++    ): Boolean {
++        return readAloudParagraphVisible
++    }
++
++    fun shouldFollowDuringRestore(
++        readAloudVisualFollowPaused: Boolean,
++        explicitFollowRestore: Boolean
++    ): Boolean {
++        return explicitFollowRestore || !readAloudVisualFollowPaused
++    }
++
++    fun shouldSyncReadBookPageBeforeManualStepProgress(
++        scrollPageAnim: Boolean,
++        targetPageChanged: Boolean
++    ): Boolean {
++        return targetPageChanged && !scrollPageAnim
++    }
++
++    fun clearFollowState(state: FollowState): FollowState {
++        return state.copy(readAloudOffset = 0, active = false)
++    }
++
++    fun interruptFollowByUserScroll(state: FollowState): FollowState {
++        return state.copy(
++            pageOffset = state.pageOffset + state.readAloudOffset,
++            readAloudOffset = 0,
++            active = false
++        )
++    }
++
++    fun interruptFollowByUserScroll(
++        state: FollowState,
++        previousPageHeight: Float?,
++        currentPageHeight: Float,
++        nextPageHeight: Float?,
++        nextPlusPageHeight: Float?
++    ): InterruptedFollowState {
++        val materialized = materializeFollowAnchor(
++            state = state,
++            previousPageHeight = previousPageHeight,
++            currentPageHeight = currentPageHeight,
++            nextPageHeight = nextPageHeight,
++            nextPlusPageHeight = nextPlusPageHeight
++        )
++        return materialized.copy(
++            state = materialized.state.copy(active = false)
++        )
++    }
++
++    fun materializeFollowAnchor(
++        state: FollowState,
++        previousPageHeight: Float?,
++        currentPageHeight: Float,
++        nextPageHeight: Float?,
++        nextPlusPageHeight: Float?
++    ): InterruptedFollowState {
++        var pageShift = 0
++        var pageOffset = contentOffset(
++            pageOffset = state.pageOffset.toFloat(),
++            readAloudOffset = state.readAloudOffset.toFloat(),
++            readAloudActive = state.active
++        )
++        if (pageOffset > 0f && previousPageHeight != null && previousPageHeight > 0f) {
++            pageOffset -= previousPageHeight
++            pageShift = -1
++        } else if (currentPageHeight > 0f) {
++            if (pageOffset < -currentPageHeight && nextPageHeight != null && nextPageHeight > 0f) {
++                pageOffset += currentPageHeight
++                pageShift = 1
++                if (
++                    pageOffset < -nextPageHeight &&
++                    nextPlusPageHeight != null &&
++                    nextPlusPageHeight > 0f
++                ) {
++                    pageOffset += nextPageHeight
++                    pageShift = 2
++                }
++            }
++        }
++        return InterruptedFollowState(
++            pageShift = pageShift,
++            state = state.copy(
++                pageOffset = pageOffset.roundToInt(),
++                readAloudOffset = 0,
++                active = state.active
++            )
++        )
++    }
++
++    fun resetPageState(state: FollowState): FollowState {
++        return clearFollowState(state).copy(pageOffset = 0)
++    }
++}
+diff --git a/app/src/main/java/io/legado/app/ui/book/read/page/ReadAloudVisualTrace.kt b/app/src/main/java/io/legado/app/ui/book/read/page/ReadAloudVisualTrace.kt
+new file mode 100644
+index 000000000..bb243170e
+--- /dev/null
++++ b/app/src/main/java/io/legado/app/ui/book/read/page/ReadAloudVisualTrace.kt
+@@ -0,0 +1,126 @@
++package io.legado.app.ui.book.read.page
++
++import android.content.ContentValues
++import android.content.Context
++import android.os.Build
++import android.os.Environment
++import android.provider.MediaStore
++import io.legado.app.BuildConfig
++import java.io.File
++import java.text.SimpleDateFormat
++import java.util.ArrayDeque
++import java.util.Date
++import java.util.Locale
++
++internal object ReadAloudVisualTrace {
++
++    private const val MAX_AGE_MS = 5 * 60 * 1000L
++    private const val MAX_EVENTS = 5000
++    private const val DOWNLOAD_SUBDIR = "legado-tts-debug"
++    private val lock = Any()
++    private val timeFormat = SimpleDateFormat("HH:mm:ss.SSS", Locale.US)
++    private val fileFormat = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US)
++    private val events = ArrayDeque<Entry>()
++
++    data class ExportResult(
++        val fileName: String,
++        val displayPath: String
++    )
++
++    private data class Entry(
++        val time: Long,
++        val event: String,
++        val detail: String
++    )
++
++    fun record(event: String, detail: String) {
++        val now = System.currentTimeMillis()
++        synchronized(lock) {
++            events.addLast(Entry(now, event, detail))
++            pruneLocked(now)
++        }
++    }
++
++    fun export(context: Context): ExportResult {
++        val now = System.currentTimeMillis()
++        val snapshot = synchronized(lock) {
++            pruneLocked(now)
++            events.toList()
++        }
++        val fileName = "read-aloud-visual-${fileFormat.format(Date(now))}.txt"
++        val dump = buildDump(now, snapshot)
++        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
++            exportToMediaStoreDownloads(context, fileName, dump)
++        } else {
++            exportToPublicDownloads(fileName, dump)
++        }
++    }
++
++    private fun exportToMediaStoreDownloads(
++        context: Context,
++        fileName: String,
++        dump: String
++    ): ExportResult {
++        val relativePath = "${Environment.DIRECTORY_DOWNLOADS}/$DOWNLOAD_SUBDIR"
++        val contentValues = ContentValues().apply {
++            put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
++            put(MediaStore.MediaColumns.MIME_TYPE, "text/plain")
++            put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath)
++            put(MediaStore.MediaColumns.IS_PENDING, 1)
++        }
++        val resolver = context.contentResolver
++        val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
++            ?: error("Can not create download file")
++        try {
++            resolver.openOutputStream(uri)?.use { output ->
++                output.write(dump.toByteArray())
++            } ?: error("Can not open download file")
++            contentValues.clear()
++            contentValues.put(MediaStore.MediaColumns.IS_PENDING, 0)
++            resolver.update(uri, contentValues, null, null)
++        } catch (e: Throwable) {
++            resolver.delete(uri, null, null)
++            throw e
++        }
++        return ExportResult(fileName, "$relativePath/$fileName")
++    }
++
++    @Suppress("DEPRECATION")
++    private fun exportToPublicDownloads(
++        fileName: String,
++        dump: String
++    ): ExportResult {
++        val dir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), DOWNLOAD_SUBDIR)
++        dir.mkdirs()
++        val file = File(dir, fileName)
++        file.writeText(dump)
++        return ExportResult(fileName, file.absolutePath)
++    }
++
++    private fun pruneLocked(now: Long) {
++        while (events.isNotEmpty() && now - events.peekFirst().time > MAX_AGE_MS) {
++            events.removeFirst()
++        }
++        while (events.size > MAX_EVENTS) {
++            events.removeFirst()
++        }
++    }
++
++    private fun buildDump(now: Long, snapshot: List<Entry>): String {
++        return buildString {
++            appendLine("Read aloud visual trace")
++            appendLine("created=${Date(now)}")
++            appendLine("version=${BuildConfig.VERSION_NAME}(${BuildConfig.VERSION_CODE})")
++            appendLine("device=${Build.MANUFACTURER}/${Build.BRAND}/${Build.MODEL} sdk=${Build.VERSION.SDK_INT}")
++            appendLine("windowMs=$MAX_AGE_MS maxEvents=$MAX_EVENTS count=${snapshot.size}")
++            appendLine()
++            snapshot.forEach { entry ->
++                append(timeFormat.format(Date(entry.time)))
++                append(' ')
++                append(entry.event)
++                append(' ')
++                appendLine(entry.detail)
++            }
++        }
++    }
++}
+diff --git a/app/src/main/java/io/legado/app/ui/book/read/page/ReadView.kt b/app/src/main/java/io/legado/app/ui/book/read/page/ReadView.kt
+index 07b2ae669..071b40d03 100644
+--- a/app/src/main/java/io/legado/app/ui/book/read/page/ReadView.kt
++++ b/app/src/main/java/io/legado/app/ui/book/read/page/ReadView.kt
+@@ -32,6 +32,7 @@ import io.legado.app.ui.book.read.page.entities.PageDirection
+ import io.legado.app.ui.book.read.page.entities.TextChapter
+ import io.legado.app.ui.book.read.page.entities.TextLine
+ import io.legado.app.ui.book.read.page.entities.TextPage
++import io.legado.app.ui.book.read.page.entities.TextParagraph
+ import io.legado.app.ui.book.read.page.entities.TextPos
+ import io.legado.app.ui.book.read.page.entities.column.TextBaseColumn
+ import io.legado.app.ui.book.read.page.provider.ChapterProvider
+@@ -443,8 +444,8 @@ class ReadView(context: Context, attrs: AttributeSet) :
+             2 -> pageDelegate?.prevPageByAnim(defaultAnimationSpeed)
+             3 -> ReadBook.moveToNextChapter(true)
+             4 -> ReadBook.moveToPrevChapter(upContent = true, toLast = false)
+-            5 -> ReadAloud.prevParagraph(context)
+-            6 -> ReadAloud.nextParagraph(context)
++            5 -> callBack.readAloudPreviousParagraph()
++            6 -> callBack.readAloudNextParagraph()
+             7 -> callBack.addBookmark()
+             8 -> activity?.showDialogFragment(ContentEditDialog())
+             9 -> callBack.changeReplaceRuleState()
+@@ -690,6 +691,37 @@ class ReadView(context: Context, attrs: AttributeSet) :
+         return curPage.getReadAloudPos()
+     }
+ 
++    fun getReadAloudCenterPos(): Pair<Int, TextLine>? {
++        return curPage.getReadAloudCenterPos()
++    }
++
++    fun containsVisibleChapterPosition(chapterIndex: Int, chapterPosition: Int): Boolean {
++        return curPage.containsVisibleChapterPosition(chapterIndex, chapterPosition)
++    }
++
++    fun containsVisibleChapterLastPage(chapterIndex: Int): Boolean {
++        return curPage.containsVisibleChapterLastPage(chapterIndex)
++    }
++
++    fun readAloudNextChapterOffset(): Int? {
++        return curPage.readAloudNextChapterOffset()
++    }
++
++    fun followReadAloudParagraph(
++        paragraph: TextParagraph,
++        initialEffectiveOffset: Int? = null
++    ): Boolean {
++        return curPage.followReadAloudParagraph(paragraph, initialEffectiveOffset)
++    }
++
++    fun setReadAloudVisualCenterIndicator(show: Boolean): Boolean {
++        return curPage.setReadAloudVisualCenterIndicator(show)
++    }
++
++    fun readAloudVisualDebugState(): String {
++        return curPage.readAloudVisualDebugState()
++    }
++
+     fun invalidateTextPage() {
+         if (!AppConfig.optimizeRender) {
+             return
+@@ -765,5 +797,7 @@ class ReadView(context: Context, attrs: AttributeSet) :
+         fun openSearchActivity(searchWord: String?)
+         fun upSystemUiVisibility()
+         fun sureNewProgress(progress: BookProgress)
++        fun readAloudPreviousParagraph()
++        fun readAloudNextParagraph()
+     }
+ }
+diff --git a/app/src/main/java/io/legado/app/ui/book/read/page/entities/TextLine.kt b/app/src/main/java/io/legado/app/ui/book/read/page/entities/TextLine.kt
+index 7fad78178..c7f65450b 100644
+--- a/app/src/main/java/io/legado/app/ui/book/read/page/entities/TextLine.kt
++++ b/app/src/main/java/io/legado/app/ui/book/read/page/entities/TextLine.kt
+@@ -54,7 +54,8 @@ data class TextLine(
+     val lineEnd: Float get() = textColumns.lastOrNull()?.end ?: 0f
+     val chapterIndices: IntRange get() = chapterPosition..chapterPosition + charSize
+     val height: Float inline get() = lineBottom - lineTop
+-    val canvasRecorder = CanvasRecorderFactory.create()
++    private val canvasRecorderLazy = lazy { CanvasRecorderFactory.create() }
++    private val canvasRecorder by canvasRecorderLazy
+     var searchResultColumnCount = 0
+     var isReadAloud: Boolean = false
+         set(value) {
+@@ -264,11 +265,15 @@ data class TextLine(
+     }
+ 
+     fun invalidateSelf() {
+-        canvasRecorder.invalidate()
++        if (canvasRecorderLazy.isInitialized()) {
++            canvasRecorder.invalidate()
++        }
+     }
+ 
+     fun recycleRecorder() {
+-        canvasRecorder.recycle()
++        if (canvasRecorderLazy.isInitialized()) {
++            canvasRecorder.recycle()
++        }
+     }
+ 
+     @SuppressLint("NewApi")
+diff --git a/app/src/main/java/io/legado/app/ui/book/read/page/entities/TextPage.kt b/app/src/main/java/io/legado/app/ui/book/read/page/entities/TextPage.kt
+index 561df6456..f60d70a05 100644
+--- a/app/src/main/java/io/legado/app/ui/book/read/page/entities/TextPage.kt
++++ b/app/src/main/java/io/legado/app/ui/book/read/page/entities/TextPage.kt
+@@ -44,7 +44,7 @@ data class TextPage(
+ 
+     companion object {
+         val readProgressFormatter = DecimalFormat("0.0%")
+-        val emptyTextPage = TextPage()
++        val emptyTextPage = TextPage(text = "", title = "")
+     }
+ 
+     val lines: List<TextLine> get() = textLines
+@@ -53,9 +53,10 @@ data class TextPage(
+     val chapterPosition: Int get() = textLines.first().chapterPosition
+     val searchResult = hashSetOf<TextBaseColumn>()
+     var isMsgPage: Boolean = false
+-    var canvasRecorder = CanvasRecorderFactory.create(true)
++    private val canvasRecorderLazy = lazy { CanvasRecorderFactory.create(true) }
++    private val canvasRecorder by canvasRecorderLazy
+     var doublePage = false
+-    var paddingTop = ChapterProvider.paddingTop
++    var paddingTop = 0
+     var isCompleted = false
+     var hasReadAloudSpan = false
+ 
+@@ -346,7 +347,9 @@ data class TextPage(
+     }
+ 
+     fun invalidate() {
+-        canvasRecorder.invalidate()
++        if (canvasRecorderLazy.isInitialized()) {
++            canvasRecorder.invalidate()
++        }
+     }
+ 
+     fun invalidateAll() {
+@@ -357,7 +360,9 @@ data class TextPage(
+     }
+ 
+     fun recycleRecorders() {
+-        canvasRecorder.recycle()
++        if (canvasRecorderLazy.isInitialized()) {
++            canvasRecorder.recycle()
++        }
+         for (i in lines.indices) {
+             lines[i].recycleRecorder()
+         }
+diff --git a/app/src/main/java/io/legado/app/ui/book/read/page/provider/TextPageFactory.kt b/app/src/main/java/io/legado/app/ui/book/read/page/provider/TextPageFactory.kt
+index e261bcc02..525a515ef 100644
+--- a/app/src/main/java/io/legado/app/ui/book/read/page/provider/TextPageFactory.kt
++++ b/app/src/main/java/io/legado/app/ui/book/read/page/provider/TextPageFactory.kt
+@@ -44,6 +44,9 @@ class TextPageFactory(dataSource: DataSource) : PageFactory<TextPage>(dataSource
+                 if ((currentChapter == null || isScroll) && nextChapter == null) {
+                     return@with false
+                 }
++                if (nextChapter != null && nextChapter?.isCompleted == false) {
++                    return@with false
++                }
+                 ReadBook.moveToNextChapter(upContent, false)
+             } else {
+                 if (pageIndex < 0 || currentChapter?.isLastIndexCurrent(pageIndex) == true) {
+diff --git a/app/src/main/res/values-zh-rCN/strings.xml b/app/src/main/res/values-zh-rCN/strings.xml
+index 2fea33bc7..b177a6fc1 100644
+--- a/app/src/main/res/values-zh-rCN/strings.xml
++++ b/app/src/main/res/values-zh-rCN/strings.xml
+@@ -937,6 +937,8 @@
+     <string name="pref_media_button_per_next">媒体按钮 • 上一首|下一首</string>
+     <string name="pref_media_button_per_next_summary">上一段|下一段/上一章|下一章</string>
+     <string name="read_aloud_by_page_summary">及时翻页，翻页时会停顿一下</string>
++    <string name="read_aloud_visual_position">朗读基于视觉定位</string>
++    <string name="read_aloud_visual_position_summary">开启后，阅读界面内的上一段/下一段会朗读屏幕中间附近的段落</string>
+     <string name="check_source_show_debug_message">校验显示详细信息</string>
+     <string name="check_source_show_debug_message_summary">书源校验时显示网络请求步骤和时间</string>
+     <string name="need_login">需要登录</string>
+diff --git a/app/src/main/res/values-zh-rHK/strings.xml b/app/src/main/res/values-zh-rHK/strings.xml
+index 853b67b87..c6c076fef 100644
+--- a/app/src/main/res/values-zh-rHK/strings.xml
++++ b/app/src/main/res/values-zh-rHK/strings.xml
+@@ -900,6 +900,8 @@
+     <string name="pref_media_button_per_next">媒體按鈕•上一首|下一首</string>
+     <string name="pref_media_button_per_next_summary">上一段|下一段/上一章|下一章</string>
+     <string name="read_aloud_by_page_summary">及時翻頁,翻頁時會停頓一下</string>
++    <string name="read_aloud_visual_position">朗讀基於視覺定位</string>
++    <string name="read_aloud_visual_position_summary">開啟後，閱讀界面內的上一段/下一段會朗讀屏幕中間附近的段落</string>
+     <string name="check_source_show_debug_message">校驗書源顯示詳細信息</string>
+     <string name="check_source_show_debug_message_summary">書源校驗時顯示網絡請求步驟和時間</string>
+     <string name="need_login">需登錄</string>
+diff --git a/app/src/main/res/values-zh-rTW/strings.xml b/app/src/main/res/values-zh-rTW/strings.xml
+index 0e080f5ac..e1e1b6b90 100644
+--- a/app/src/main/res/values-zh-rTW/strings.xml
++++ b/app/src/main/res/values-zh-rTW/strings.xml
+@@ -903,6 +903,8 @@
+     <string name="pref_media_button_per_next">媒體按鈕•上一首|下一首</string>
+     <string name="pref_media_button_per_next_summary">上一段|下一段/上一章|下一章</string>
+     <string name="read_aloud_by_page_summary">及時翻頁，翻頁時會停頓一下</string>
++    <string name="read_aloud_visual_position">朗讀基於視覺定位</string>
++    <string name="read_aloud_visual_position_summary">開啟後，閱讀界面內的上一段/下一段會朗讀螢幕中間附近的段落</string>
+     <string name="check_source_show_debug_message">校驗書源顯示詳細資訊</string>
+     <string name="check_source_show_debug_message_summary">書源校驗時顯示網路請求步驟和時間</string>
+     <string name="need_login">需登入</string>
+diff --git a/app/src/main/res/values/strings.xml b/app/src/main/res/values/strings.xml
+index 1977edb8c..d3dd3e75f 100644
+--- a/app/src/main/res/values/strings.xml
++++ b/app/src/main/res/values/strings.xml
+@@ -968,6 +968,10 @@
+     <string name="pref_media_button_per_next">Media Buttons • Previous | Next</string>
+     <string name="pref_media_button_per_next_summary">Previous Paragraph|Next Paragraph/Previous Chapter|Next Chapter</string>
+     <string name="read_aloud_by_page_summary">Turning pages in time, with a pause when the page is turned</string>
++    <string name="read_aloud_visual_position">Read aloud from visual position</string>
++    <string name="read_aloud_visual_position_summary">When enabled, previous/next paragraph controls in the reader use the paragraph near the screen center</string>
++    <string name="read_aloud_visual_debug_log">Save read aloud visual log</string>
++    <string name="read_aloud_visual_debug_log_summary">Save recent visual page, render page, and TTS position events to Download/legado-tts-debug</string>
+     <string name="check_source_show_debug_message">Check book source shows debug message</string>
+     <string name="check_source_show_debug_message_summary">Show network status and timestamp during source checking</string>
+     <string name="need_login">Require Login</string>
+diff --git a/app/src/main/res/xml/pref_config_aloud.xml b/app/src/main/res/xml/pref_config_aloud.xml
+index a2b1d076a..2a3c0394a 100644
+--- a/app/src/main/res/xml/pref_config_aloud.xml
++++ b/app/src/main/res/xml/pref_config_aloud.xml
+@@ -41,6 +41,19 @@
+             android:key="readAloudByPage"
+             app:iconSpaceReserved="false" />
+ 
++        <io.legado.app.lib.prefs.SwitchPreference
++            android:defaultValue="false"
++            android:title="@string/read_aloud_visual_position"
++            android:summary="@string/read_aloud_visual_position_summary"
++            android:key="readAloudVisualPosition"
++            app:iconSpaceReserved="false" />
++
++        <io.legado.app.lib.prefs.Preference
++            android:key="saveReadAloudVisualLog"
++            android:summary="@string/read_aloud_visual_debug_log_summary"
++            android:title="@string/read_aloud_visual_debug_log"
++            app:iconSpaceReserved="false" />
++
+         <io.legado.app.lib.prefs.SwitchPreference
+             android:defaultValue="false"
+             android:key="systemMediaControlCompatibilityChange"
+diff --git a/app/src/test/java/io/legado/app/model/ReadAloudPageChangePolicyTest.kt b/app/src/test/java/io/legado/app/model/ReadAloudPageChangePolicyTest.kt
+new file mode 100644
+index 000000000..3859e0ed2
+--- /dev/null
++++ b/app/src/test/java/io/legado/app/model/ReadAloudPageChangePolicyTest.kt
+@@ -0,0 +1,68 @@
++package io.legado.app.model
++
++import org.junit.Assert.assertFalse
++import org.junit.Assert.assertTrue
++import org.junit.Test
++
++class ReadAloudPageChangePolicyTest {
++
++    @Test
++    fun pausedPageChangeDoesNotRestartReadAloudFromVisualPage() {
++        val shouldRestart = ReadAloudPageChangePolicy.shouldRestartPausedServiceFromVisualPage(
++            readAloudRunning = true,
++            readAloudPaused = true,
++            visualChapterCompleted = true,
++            visualChapterChanged = false
++        )
++
++        assertFalse(shouldRestart)
++    }
++
++    @Test
++    fun pausedCrossChapterPageChangeDoesNotRestartReadAloudFromVisualPage() {
++        val shouldRestart = ReadAloudPageChangePolicy.shouldRestartPausedServiceFromVisualPage(
++            readAloudRunning = true,
++            readAloudPaused = true,
++            visualChapterCompleted = true,
++            visualChapterChanged = true
++        )
++
++        assertFalse(shouldRestart)
++    }
++
++    @Test
++    fun readAloudPageChangeDoesNotRefreshReadViewBeforeProgress() {
++        val shouldRefresh = ReadAloudPageChangePolicy.shouldRefreshReadViewOnPageChanged(
++            fromReadAloud = true
++        )
++
++        assertFalse(shouldRefresh)
++    }
++
++    @Test
++    fun visualPageChangeRefreshesReadView() {
++        val shouldRefresh = ReadAloudPageChangePolicy.shouldRefreshReadViewOnPageChanged(
++            fromReadAloud = false
++        )
++
++        assertTrue(shouldRefresh)
++    }
++
++    @Test
++    fun readAloudChapterMoveDoesNotRefreshContentBeforeProgress() {
++        val shouldRefresh = ReadAloudPageChangePolicy.shouldRefreshContentDuringChapterMove(
++            fromReadAloud = true
++        )
++
++        assertFalse(shouldRefresh)
++    }
++
++    @Test
++    fun visualChapterMoveRefreshesContent() {
++        val shouldRefresh = ReadAloudPageChangePolicy.shouldRefreshContentDuringChapterMove(
++            fromReadAloud = false
++        )
++
++        assertTrue(shouldRefresh)
++    }
++}
+diff --git a/app/src/test/java/io/legado/app/service/ReadAloudProgressTest.kt b/app/src/test/java/io/legado/app/service/ReadAloudProgressTest.kt
+new file mode 100644
+index 000000000..895dffde7
+--- /dev/null
++++ b/app/src/test/java/io/legado/app/service/ReadAloudProgressTest.kt
+@@ -0,0 +1,37 @@
++package io.legado.app.service
++
++import org.junit.Assert.assertEquals
++import org.junit.Test
++
++class ReadAloudProgressTest {
++
++    @Test
++    fun rangeStartKeepsResumePositionInsideCurrentParagraph() {
++        val position = ReadAloudProgress.fromRangeStart(
++            readAloudNumber = 1200,
++            paragraphStartPos = 80,
++            rangeStart = 35,
++            nowSpeak = 4,
++            pageIndex = 7
++        )
++
++        assertEquals(1235, position.readAloudNumber)
++        assertEquals(115, position.paragraphStartPos)
++        assertEquals(4, position.nowSpeak)
++        assertEquals(7, position.pageIndex)
++    }
++
++    @Test
++    fun negativeRangeStartDoesNotMoveResumePositionBackwards() {
++        val position = ReadAloudProgress.fromRangeStart(
++            readAloudNumber = 1200,
++            paragraphStartPos = 80,
++            rangeStart = -20,
++            nowSpeak = 4,
++            pageIndex = 7
++        )
++
++        assertEquals(1200, position.readAloudNumber)
++        assertEquals(80, position.paragraphStartPos)
++    }
++}
+diff --git a/app/src/test/java/io/legado/app/ui/book/read/page/ReadAloudParagraphHighlighterTest.kt b/app/src/test/java/io/legado/app/ui/book/read/page/ReadAloudParagraphHighlighterTest.kt
+new file mode 100644
+index 000000000..47e8155d0
+--- /dev/null
++++ b/app/src/test/java/io/legado/app/ui/book/read/page/ReadAloudParagraphHighlighterTest.kt
+@@ -0,0 +1,76 @@
++package io.legado.app.ui.book.read.page
++
++import android.app.Application
++import io.legado.app.ui.book.read.page.entities.TextLine
++import io.legado.app.ui.book.read.page.entities.TextPage
++import io.legado.app.ui.book.read.page.entities.TextParagraph
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertFalse
++import org.junit.Assert.assertTrue
++import org.junit.Test
++import org.junit.runner.RunWith
++import org.robolectric.RobolectricTestRunner
++import org.robolectric.annotation.Config
++import splitties.init.injectAsAppCtx
++
++@RunWith(RobolectricTestRunner::class)
++@Config(
++    sdk = [34],
++    application = ReadAloudParagraphHighlighterTest.TestApplication::class
++)
++class ReadAloudParagraphHighlighterTest {
++
++    @Test
++    fun marksEveryPageTouchedByParagraph() {
++        val firstPage = textPage(0)
++        val secondPage = textPage(1)
++        val firstLine = textLine("first")
++        val secondLine = textLine("second")
++        firstPage.addLine(firstLine)
++        secondPage.addLine(secondLine)
++
++        val highlightedPages = ReadAloudParagraphHighlighter.update(
++            paragraph = TextParagraph(1, arrayListOf(firstLine, secondLine)),
++            highlightedPageIndices = emptySet()
++        ) { index -> listOf(firstPage, secondPage).getOrNull(index) }
++
++        assertEquals(setOf(0, 1), highlightedPages)
++        assertTrue(firstLine.isReadAloud)
++        assertTrue(secondLine.isReadAloud)
++    }
++
++    @Test
++    fun clearsPreviouslyHighlightedPagesBeforeMarkingNewParagraph() {
++        val oldPage = textPage(0)
++        val newPage = textPage(1)
++        val oldLine = textLine("old")
++        val newLine = textLine("new")
++        oldPage.addLine(oldLine)
++        newPage.addLine(newLine)
++        oldLine.isReadAloud = true
++
++        val highlightedPages = ReadAloudParagraphHighlighter.update(
++            paragraph = TextParagraph(2, arrayListOf(newLine)),
++            highlightedPageIndices = setOf(0)
++        ) { index -> listOf(oldPage, newPage).getOrNull(index) }
++
++        assertEquals(setOf(1), highlightedPages)
++        assertFalse(oldLine.isReadAloud)
++        assertTrue(newLine.isReadAloud)
++    }
++
++    private fun textPage(index: Int): TextPage {
++        return TextPage(index = index, text = "", title = "")
++    }
++
++    private fun textLine(text: String): TextLine {
++        return TextLine(text = text, paragraphNum = 1)
++    }
++
++    class TestApplication : Application() {
++        override fun onCreate() {
++            injectAsAppCtx()
++            super.onCreate()
++        }
++    }
++}
+diff --git a/app/src/test/java/io/legado/app/ui/book/read/page/ReadAloudVisualPositionerTest.kt b/app/src/test/java/io/legado/app/ui/book/read/page/ReadAloudVisualPositionerTest.kt
+new file mode 100644
+index 000000000..d40d0c7c4
+--- /dev/null
++++ b/app/src/test/java/io/legado/app/ui/book/read/page/ReadAloudVisualPositionerTest.kt
+@@ -0,0 +1,655 @@
++package io.legado.app.ui.book.read.page
++
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertFalse
++import org.junit.Assert.assertNull
++import org.junit.Assert.assertTrue
++import org.junit.Test
++
++class ReadAloudVisualPositionerTest {
++
++    @Test
++    fun paragraphInsideMiddleAreaKeepsCurrentOffset() {
++        val offset = ReadAloudVisualPositioner.calculateOffset(
++            paragraphTop = 250f,
++            paragraphBottom = 450f,
++            visibleTop = 100f,
++            visibleHeight = 1000f
++        )
++
++        assertEquals(0, offset)
++    }
++
++    @Test
++    fun paragraphAlreadyInsideMiddleAreaWithCurrentOffsetKeepsCurrentOffset() {
++        val offset = ReadAloudVisualPositioner.calculateOffset(
++            paragraphTop = 600f,
++            paragraphBottom = 800f,
++            visibleTop = 100f,
++            visibleHeight = 1000f,
++            currentOffset = -200f
++        )
++
++        assertEquals(-200, offset)
++    }
++
++    @Test
++    fun visibleTopParagraphKeepsCurrentOffset() {
++        val offset = ReadAloudVisualPositioner.calculateOffset(
++            paragraphTop = 100f,
++            paragraphBottom = 300f,
++            visibleTop = 100f,
++            visibleHeight = 1000f
++        )
++
++        assertEquals(0, offset)
++    }
++
++    @Test
++    fun naturalBottomOverflowKeepsCurrentOffsetWhenParagraphIsCurrentlySafe() {
++        val offset = ReadAloudVisualPositioner.calculateOffset(
++            paragraphTop = 900f,
++            paragraphBottom = 1000f,
++            visibleTop = 100f,
++            visibleHeight = 1000f,
++            currentOffset = -200f
++        )
++
++        assertEquals(-200, offset)
++    }
++
++    @Test
++    fun bottomOverflowParagraphRestartsAtMiddleAreaTop() {
++        val offset = ReadAloudVisualPositioner.calculateOffset(
++            paragraphTop = 900f,
++            paragraphBottom = 1100f,
++            visibleTop = 100f,
++            visibleHeight = 1000f
++        )
++
++        assertEquals(-700, offset)
++    }
++
++    @Test
++    fun previousFollowOffsetDoesNotKeepNextParagraphNearBottom() {
++        val offset = ReadAloudVisualPositioner.calculateOffset(
++            paragraphTop = 960f,
++            paragraphBottom = 1100f,
++            visibleTop = 100f,
++            visibleHeight = 1000f,
++            currentOffset = -50f
++        )
++
++        assertEquals(-760, offset)
++    }
++
++    @Test
++    fun paragraphAboveVisibleAreaRestartsAtMiddleAreaTop() {
++        val offset = ReadAloudVisualPositioner.calculateOffset(
++            paragraphTop = 20f,
++            paragraphBottom = 120f,
++            visibleTop = 100f,
++            visibleHeight = 1000f
++        )
++
++        assertEquals(180, offset)
++    }
++
++    @Test
++    fun positiveOffsetDrawsPreviousPageBottomAboveCurrentPage() {
++        val offset = ReadAloudVisualPositioner.previousPageOffset(
++            currentOffset = 150f,
++            previousPageHeight = 900f
++        )
++
++        assertEquals(-750f, offset)
++    }
++
++    @Test
++    fun nonPositiveOffsetDoesNotDrawPreviousPage() {
++        val offset = ReadAloudVisualPositioner.previousPageOffset(
++            currentOffset = 0f,
++            previousPageHeight = 900f
++        )
++
++        assertNull(offset)
++    }
++
++    @Test
++    fun relativePageTopUsesContinuousVisualCoordinates() {
++        assertEquals(
++            -900f,
++            ReadAloudVisualPositioner.relativePageTop(
++                currentPageIndex = 3,
++                targetPageIndex = 2,
++                previousPageHeight = 900f,
++                currentPageHeight = 1000f,
++                nextPageHeight = 1100f
++            )
++        )
++        assertEquals(
++            0f,
++            ReadAloudVisualPositioner.relativePageTop(
++                currentPageIndex = 3,
++                targetPageIndex = 3,
++                previousPageHeight = 900f,
++                currentPageHeight = 1000f,
++                nextPageHeight = 1100f
++            )
++        )
++        assertEquals(
++            1000f,
++            ReadAloudVisualPositioner.relativePageTop(
++                currentPageIndex = 3,
++                targetPageIndex = 4,
++                previousPageHeight = 900f,
++                currentPageHeight = 1000f,
++                nextPageHeight = 1100f
++            )
++        )
++        assertEquals(
++            2100f,
++            ReadAloudVisualPositioner.relativePageTop(
++                currentPageIndex = 3,
++                targetPageIndex = 5,
++                previousPageHeight = 900f,
++                currentPageHeight = 1000f,
++                nextPageHeight = 1100f
++            )
++        )
++    }
++
++    @Test
++    fun nonAdjacentPageHasNoContinuousVisualCoordinate() {
++        val pageTop = ReadAloudVisualPositioner.relativePageTop(
++            currentPageIndex = 3,
++            targetPageIndex = 6,
++            previousPageHeight = 900f,
++            currentPageHeight = 1000f,
++            nextPageHeight = 1100f
++        )
++
++        assertNull(pageTop)
++    }
++
++    @Test
++    fun nextChapterOffsetContinuesAfterPreviousPage() {
++        val offset = ReadAloudVisualPositioner.nextChapterOffset(
++            previousEffectiveOffset = -420f,
++            previousPageHeight = 1000f
++        )
++
++        assertEquals(580, offset)
++    }
++
++    @Test
++    fun invalidPreviousPageHeightDoesNotContinueToNextChapter() {
++        val offset = ReadAloudVisualPositioner.nextChapterOffset(
++            previousEffectiveOffset = -420f,
++            previousPageHeight = 0f
++        )
++
++        assertNull(offset)
++    }
++
++    @Test
++    fun chapterBoundaryInitialOffsetStartsParagraphAtMiddleAreaTop() {
++        val offset = ReadAloudVisualPositioner.chapterBoundaryInitialOffset(
++            paragraphTop = 21f,
++            paragraphBottom = 114f,
++            visibleTop = 0f,
++            visibleHeight = 3032f
++        )
++
++        assertEquals(282, offset)
++    }
++
++    @Test
++    fun chapterBoundaryInitialOffsetStartsLongParagraphAtVisibleTop() {
++        val offset = ReadAloudVisualPositioner.chapterBoundaryInitialOffset(
++            paragraphTop = 21f,
++            paragraphBottom = 2900f,
++            visibleTop = 0f,
++            visibleHeight = 3032f
++        )
++
++        assertEquals(-21, offset)
++    }
++
++    @Test
++    fun visiblePreviousChapterLastPageUsesChapterBoundaryOffset() {
++        val shouldUseOffset = ReadAloudVisualPositioner.shouldUseChapterBoundaryInitialOffset(
++            targetPageIndex = 0,
++            previousChapterLastPageVisible = true
++        )
++
++        assertTrue(shouldUseOffset)
++    }
++
++    @Test
++    fun hiddenPreviousChapterLastPageDoesNotUseChapterBoundaryOffset() {
++        val shouldUseOffset = ReadAloudVisualPositioner.shouldUseChapterBoundaryInitialOffset(
++            targetPageIndex = 0,
++            previousChapterLastPageVisible = false
++        )
++
++        assertFalse(shouldUseOffset)
++    }
++
++    @Test
++    fun nonFirstTargetPageDoesNotUseChapterBoundaryOffset() {
++        val shouldUseOffset = ReadAloudVisualPositioner.shouldUseChapterBoundaryInitialOffset(
++            targetPageIndex = 1,
++            previousChapterLastPageVisible = true
++        )
++
++        assertFalse(shouldUseOffset)
++    }
++
++    @Test
++    fun readAloudPageChangeSkipsCenterIndicatorPreUpdate() {
++        val shouldUpdate = ReadAloudVisualPositioner.shouldUpdateCenterIndicatorOnPageChanged(
++            fromReadAloud = true
++        )
++
++        assertFalse(shouldUpdate)
++    }
++
++    @Test
++    fun userPageChangeUpdatesCenterIndicator() {
++        val shouldUpdate = ReadAloudVisualPositioner.shouldUpdateCenterIndicatorOnPageChanged(
++            fromReadAloud = false
++        )
++
++        assertTrue(shouldUpdate)
++    }
++
++    @Test
++    fun quietCenterIndicatorEvaluationTracesOnlyChanges() {
++        assertFalse(
++            ReadAloudVisualPositioner.shouldTraceCenterIndicatorEvaluation(
++                forceTrace = false,
++                indicatorChanged = false
++            )
++        )
++        assertTrue(
++            ReadAloudVisualPositioner.shouldTraceCenterIndicatorEvaluation(
++                forceTrace = false,
++                indicatorChanged = true
++            )
++        )
++    }
++
++    @Test
++    fun activeFollowOffsetIsAddedToScrollOffsetForDrawingOnly() {
++        val offset = ReadAloudVisualPositioner.contentOffset(
++            pageOffset = -300f,
++            readAloudOffset = 150f,
++            readAloudActive = true
++        )
++
++        assertEquals(-150f, offset)
++    }
++
++    @Test
++    fun inactiveFollowOffsetKeepsScrollOffset() {
++        val offset = ReadAloudVisualPositioner.contentOffset(
++            pageOffset = -300f,
++            readAloudOffset = 150f,
++            readAloudActive = false
++        )
++
++        assertEquals(-300f, offset)
++    }
++
++    @Test
++    fun visibleReadAloudPositionKeepsManualStepOnReadAloudPosition() {
++        val shouldUseVisualCenter = ReadAloudVisualPositioner.shouldStepFromVisualCenter(
++            visualPositionEnabled = true,
++            readAloudRunning = true,
++            readAloudPositionVisible = true
++        )
++
++        assertFalse(shouldUseVisualCenter)
++    }
++
++    @Test
++    fun hiddenReadAloudPositionAllowsManualStepFromVisualCenter() {
++        val shouldUseVisualCenter = ReadAloudVisualPositioner.shouldStepFromVisualCenter(
++            visualPositionEnabled = true,
++            readAloudRunning = true,
++            readAloudPositionVisible = false
++        )
++
++        assertTrue(shouldUseVisualCenter)
++    }
++
++    @Test
++    fun disabledVisualPositionKeepsManualStepOnReadAloudPosition() {
++        val shouldUseVisualCenter = ReadAloudVisualPositioner.shouldStepFromVisualCenter(
++            visualPositionEnabled = false,
++            readAloudRunning = true,
++            readAloudPositionVisible = false
++        )
++
++        assertFalse(shouldUseVisualCenter)
++    }
++
++    @Test
++    fun hiddenReadAloudPositionShowsVisualCenterIndicator() {
++        val shouldShow = ReadAloudVisualPositioner.shouldShowVisualCenterIndicator(
++            visualPositionEnabled = true,
++            readAloudPlaying = true,
++            readAloudPositionVisible = false
++        )
++
++        assertTrue(shouldShow)
++    }
++
++    @Test
++    fun visibleReadAloudPositionHidesVisualCenterIndicator() {
++        val shouldShow = ReadAloudVisualPositioner.shouldShowVisualCenterIndicator(
++            visualPositionEnabled = true,
++            readAloudPlaying = true,
++            readAloudPositionVisible = true
++        )
++
++        assertFalse(shouldShow)
++    }
++
++    @Test
++    fun successfulVisualFollowKeepsExistingVisualPage() {
++        val fallback = ReadAloudVisualPositioner.followFallback(
++            followSucceeded = true,
++            visualPageMatchesTarget = false
++        )
++
++        assertEquals(ReadAloudVisualPositioner.FollowFallback.KeepVisualPage, fallback)
++    }
++
++    @Test
++    fun failedVisualFollowRefreshesWhenVisualPageAlreadyMatchesTarget() {
++        val fallback = ReadAloudVisualPositioner.followFallback(
++            followSucceeded = false,
++            visualPageMatchesTarget = true
++        )
++
++        assertEquals(ReadAloudVisualPositioner.FollowFallback.RefreshCurrentPage, fallback)
++    }
++
++    @Test
++    fun failedVisualFollowJumpsWhenVisualPageDoesNotMatchTarget() {
++        val fallback = ReadAloudVisualPositioner.followFallback(
++            followSucceeded = false,
++            visualPageMatchesTarget = false
++        )
++
++        assertEquals(ReadAloudVisualPositioner.FollowFallback.JumpToTargetPage, fallback)
++    }
++
++    @Test
++    fun pausedVisualFollowStillUpdatesHighlightWhenParagraphVisible() {
++        val shouldUpdate = ReadAloudVisualPositioner.shouldUpdateHighlightWhenFollowPaused(
++            readAloudParagraphVisible = true
++        )
++
++        assertTrue(shouldUpdate)
++    }
++
++    @Test
++    fun pausedVisualFollowDoesNotUpdateHighlightWhenParagraphHidden() {
++        val shouldUpdate = ReadAloudVisualPositioner.shouldUpdateHighlightWhenFollowPaused(
++            readAloudParagraphVisible = false
++        )
++
++        assertFalse(shouldUpdate)
++    }
++
++    @Test
++    fun pausedResumeUsesStoredReadAloudPositionEvenAfterVisualPageChanged() {
++        val shouldRestore = ReadAloudVisualPositioner.shouldRestoreStoredPositionOnResume(
++            readAloudPaused = true,
++            visualPageChanged = true
++        )
++
++        assertTrue(shouldRestore)
++    }
++
++    @Test
++    fun nonPausedStateDoesNotRunStoredPositionResumePath() {
++        val shouldRestore = ReadAloudVisualPositioner.shouldRestoreStoredPositionOnResume(
++            readAloudPaused = false,
++            visualPageChanged = true
++        )
++
++        assertFalse(shouldRestore)
++    }
++
++    @Test
++    fun visibleReadAloudParagraphRestoresWithoutPageJump() {
++        val shouldReuseVisiblePage = ReadAloudVisualPositioner.shouldRestoreWithoutPageJump(
++            readAloudParagraphVisible = true
++        )
++
++        assertTrue(shouldReuseVisiblePage)
++    }
++
++    @Test
++    fun hiddenReadAloudParagraphRequiresPageJumpOnRestore() {
++        val shouldReuseVisiblePage = ReadAloudVisualPositioner.shouldRestoreWithoutPageJump(
++            readAloudParagraphVisible = false
++        )
++
++        assertFalse(shouldReuseVisiblePage)
++    }
++
++    @Test
++    fun pausedVisualFollowBlocksImplicitRestoreFollow() {
++        val shouldFollow = ReadAloudVisualPositioner.shouldFollowDuringRestore(
++            readAloudVisualFollowPaused = true,
++            explicitFollowRestore = false
++        )
++
++        assertFalse(shouldFollow)
++    }
++
++    @Test
++    fun explicitRestoreCanResumePausedVisualFollow() {
++        val shouldFollow = ReadAloudVisualPositioner.shouldFollowDuringRestore(
++            readAloudVisualFollowPaused = true,
++            explicitFollowRestore = true
++        )
++
++        assertTrue(shouldFollow)
++    }
++
++    @Test
++    fun unpausedVisualFollowAllowsImplicitRestoreFollow() {
++        val shouldFollow = ReadAloudVisualPositioner.shouldFollowDuringRestore(
++            readAloudVisualFollowPaused = false,
++            explicitFollowRestore = false
++        )
++
++        assertTrue(shouldFollow)
++    }
++
++    @Test
++    fun scrollModeDefersReadBookPageSyncBeforeManualStepProgress() {
++        val shouldSync = ReadAloudVisualPositioner.shouldSyncReadBookPageBeforeManualStepProgress(
++            scrollPageAnim = true,
++            targetPageChanged = true
++        )
++
++        assertFalse(shouldSync)
++    }
++
++    @Test
++    fun nonScrollModeKeepsReadBookPageSyncBeforeManualStepProgress() {
++        val shouldSync = ReadAloudVisualPositioner.shouldSyncReadBookPageBeforeManualStepProgress(
++            scrollPageAnim = false,
++            targetPageChanged = true
++        )
++
++        assertTrue(shouldSync)
++    }
++
++    @Test
++    fun unchangedTargetPageDoesNotNeedReadBookPageSyncBeforeManualStepProgress() {
++        val shouldSync = ReadAloudVisualPositioner.shouldSyncReadBookPageBeforeManualStepProgress(
++            scrollPageAnim = false,
++            targetPageChanged = false
++        )
++
++        assertFalse(shouldSync)
++    }
++
++    @Test
++    fun clearFollowStateKeepsScrollOffset() {
++        val state = ReadAloudVisualPositioner.clearFollowState(
++            ReadAloudVisualPositioner.FollowState(
++                pageOffset = -420,
++                readAloudOffset = 120,
++                active = true
++            )
++        )
++
++        assertEquals(-420, state.pageOffset)
++        assertEquals(0, state.readAloudOffset)
++        assertEquals(false, state.active)
++    }
++
++    @Test
++    fun userScrollInterruptionKeepsVisualPosition() {
++        val state = ReadAloudVisualPositioner.interruptFollowByUserScroll(
++            ReadAloudVisualPositioner.FollowState(
++                pageOffset = -420,
++                readAloudOffset = 120,
++                active = true
++            )
++        )
++
++        assertEquals(-300, state.pageOffset)
++        assertEquals(0, state.readAloudOffset)
++        assertEquals(false, state.active)
++    }
++
++    @Test
++    fun userScrollInterruptionMaterializesNextVisualPageBeforeClearingFollow() {
++        val interruption = ReadAloudVisualPositioner.interruptFollowByUserScroll(
++            state = ReadAloudVisualPositioner.FollowState(
++                pageOffset = -1663,
++                readAloudOffset = -2340,
++                active = true
++            ),
++            previousPageHeight = 3051f,
++            currentPageHeight = 3051f,
++            nextPageHeight = 3032f,
++            nextPlusPageHeight = 3032f
++        )
++
++        assertEquals(1, interruption.pageShift)
++        assertEquals(-952, interruption.state.pageOffset)
++        assertEquals(0, interruption.state.readAloudOffset)
++        assertEquals(false, interruption.state.active)
++    }
++
++    @Test
++    fun userScrollInterruptionMaterializesPreviousVisualPageBeforeClearingFollow() {
++        val interruption = ReadAloudVisualPositioner.interruptFollowByUserScroll(
++            state = ReadAloudVisualPositioner.FollowState(
++                pageOffset = 0,
++                readAloudOffset = 452,
++                active = true
++            ),
++            previousPageHeight = 3051f,
++            currentPageHeight = 3032f,
++            nextPageHeight = 3032f,
++            nextPlusPageHeight = null
++        )
++
++        assertEquals(-1, interruption.pageShift)
++        assertEquals(-2599, interruption.state.pageOffset)
++        assertEquals(0, interruption.state.readAloudOffset)
++        assertEquals(false, interruption.state.active)
++    }
++
++    @Test
++    fun followAnchorMaterializesNextVisualPageWithoutClearingFollow() {
++        val materialized = ReadAloudVisualPositioner.materializeFollowAnchor(
++            state = ReadAloudVisualPositioner.FollowState(
++                pageOffset = 0,
++                readAloudOffset = -4575,
++                active = true
++            ),
++            previousPageHeight = 3051f,
++            currentPageHeight = 3051f,
++            nextPageHeight = 3032f,
++            nextPlusPageHeight = 3032f
++        )
++
++        assertEquals(1, materialized.pageShift)
++        assertEquals(-1524, materialized.state.pageOffset)
++        assertEquals(0, materialized.state.readAloudOffset)
++        assertEquals(true, materialized.state.active)
++    }
++
++    @Test
++    fun followAnchorMaterializesSecondNextVisualPageWithoutClearingFollow() {
++        val materialized = ReadAloudVisualPositioner.materializeFollowAnchor(
++            state = ReadAloudVisualPositioner.FollowState(
++                pageOffset = 0,
++                readAloudOffset = -6775,
++                active = true
++            ),
++            previousPageHeight = 3051f,
++            currentPageHeight = 3051f,
++            nextPageHeight = 3032f,
++            nextPlusPageHeight = 3032f
++        )
++
++        assertEquals(2, materialized.pageShift)
++        assertEquals(-692, materialized.state.pageOffset)
++        assertEquals(0, materialized.state.readAloudOffset)
++        assertEquals(true, materialized.state.active)
++    }
++
++    @Test
++    fun resetPageStateClearsScrollOffset() {
++        val state = ReadAloudVisualPositioner.resetPageState(
++            ReadAloudVisualPositioner.FollowState(
++                pageOffset = -420,
++                readAloudOffset = 120,
++                active = true
++            )
++        )
++
++        assertEquals(0, state.pageOffset)
++        assertEquals(0, state.readAloudOffset)
++        assertEquals(false, state.active)
++    }
++
++    @Test
++    fun longParagraphStartsAtVisibleTop() {
++        val offset = ReadAloudVisualPositioner.calculateOffset(
++            paragraphTop = 850f,
++            paragraphBottom = 1800f,
++            visibleTop = 100f,
++            visibleHeight = 1000f
++        )
++
++        assertEquals(-750, offset)
++    }
++
++    @Test
++    fun invalidVisibleAreaKeepsCurrentOffset() {
++        val offset = ReadAloudVisualPositioner.calculateOffset(
++            paragraphTop = 100f,
++            paragraphBottom = 200f,
++            visibleTop = 100f,
++            visibleHeight = 0f,
++            currentOffset = -50f
++        )
++
++        assertEquals(-50, offset)
++    }
++}
+-- 
+2.33.0.windows.2
+

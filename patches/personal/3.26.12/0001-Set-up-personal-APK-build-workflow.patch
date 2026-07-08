@@ -1,16 +1,81 @@
-From c53a68c4f7275456c3695a4828cc6720d939bf60 Mon Sep 17 00:00:00 2001
+From 95f24bd39f807ff2adbb1079bf49490ee4239f51 Mon Sep 17 00:00:00 2001
 From: popyoung <popyoung@163.com>
-Date: Sat, 27 Jun 2026 15:56:56 +0800
-Subject: [PATCH 13/15] Document personal patch workflow
+Date: Wed, 8 Jul 2026 12:06:51 +0800
+Subject: [PATCH 1/2] Set up personal APK build workflow
 
 ---
- AGENTS.md                       |  10 ++++
+ .github/workflows/ci.yml        |  55 ++++++++++++++++
+ AGENTS.md                       |  10 +++
  CLAUDE.md                       |  12 ++++
- docs/personal-patch-workflow.md | 103 ++++++++++++++++++++++++++++++++
- 3 files changed, 125 insertions(+)
+ app/build.gradle.kts            |  12 +++-
+ docs/personal-patch-workflow.md | 113 ++++++++++++++++++++++++++++++++
+ gradle/libs.versions.toml       |   2 +
+ 6 files changed, 202 insertions(+), 2 deletions(-)
+ create mode 100644 .github/workflows/ci.yml
  create mode 100644 AGENTS.md
  create mode 100644 docs/personal-patch-workflow.md
 
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+new file mode 100644
+index 000000000..d6ac4fd01
+--- /dev/null
++++ b/.github/workflows/ci.yml
+@@ -0,0 +1,55 @@
++name: Build APK
++
++on:
++  pull_request:
++    branches:
++      - "personal/**"
++      - "custom/**"
++  workflow_dispatch:
++
++jobs:
++  android:
++    name: Android
++    runs-on: ubuntu-latest
++
++    steps:
++      - name: Checkout
++        uses: actions/checkout@v4
++
++      - name: Set up JDK 21
++        uses: actions/setup-java@v4
++        with:
++          distribution: temurin
++          java-version: "21"
++
++      - name: Set up Android SDK
++        uses: android-actions/setup-android@v3
++
++      - name: Install Android SDK packages
++        run: sdkmanager "platforms;android-37.0" "build-tools;37.0.0"
++
++      - name: Set up Gradle
++        uses: gradle/actions/setup-gradle@v4
++
++      - name: Make Gradle wrapper executable
++        run: chmod +x ./gradlew
++
++      - name: Remove Aliyun mirrors
++        run: sed -i '/maven.aliyun.com/d' settings.gradle
++
++      - name: Compile app debug Kotlin
++        run: ./gradlew --no-configuration-cache :app:compileAppDebugKotlin
++
++      - name: Test read aloud behavior
++        run: ./gradlew --no-configuration-cache :app:testAppDebugUnitTest --tests "io.legado.app.ui.book.read.page.ReadAloudParagraphHighlighterTest" --tests "io.legado.app.ui.book.read.page.ReadAloudVisualPositionerTest" --tests "io.legado.app.service.ReadAloudProgressTest" --tests "io.legado.app.model.ReadAloudPageChangePolicyTest"
++
++      - name: Build arm64-v8a noR8 APK
++        run: ./gradlew --no-configuration-cache -Plegado.splitAbis=arm64-v8a :app:assembleAppNoR8
++
++      - name: Upload APKs
++        uses: actions/upload-artifact@v4
++        with:
++          name: legado-arm64-v8a-noR8-unsigned-apk
++          path: app/build/outputs/apk/**/noR8/*arm64-v8a*.apk
++          if-no-files-found: error
++          retention-days: 14
 diff --git a/AGENTS.md b/AGENTS.md
 new file mode 100644
 index 000000000..1473e5d7f
@@ -57,12 +122,49 @@ index 4bc42530f..b7f3ff620 100644
  ```bash
  # Quick compile check (Kotlin only, no dex/package — fastest for verifying code compiles)
  .\gradlew.bat :app:compileAppDebugKotlin
+diff --git a/app/build.gradle.kts b/app/build.gradle.kts
+index 1343b12df..082cab8d0 100644
+--- a/app/build.gradle.kts
++++ b/app/build.gradle.kts
+@@ -27,6 +27,13 @@ val versionMinor = versionProps["VERSION_MINOR"]?.toString()?.toInt() ?: 0
+ val versionPatch = versionProps["VERSION_PATCH"]?.toString()?.toInt() ?: 0
+ val appName = "legado"
+ val projectVersionName = "$versionMajor.$versionMinor.$versionPatch"
++val splitAbisProperty = providers.gradleProperty("legado.splitAbis").orNull
++val splitAbis = splitAbisProperty
++    ?.split(",")
++    ?.map { it.trim() }
++    ?.filter { it.isNotEmpty() }
++    ?.takeIf { it.isNotEmpty() }
++    ?: listOf("armeabi-v7a", "arm64-v8a")
+ 
+ android {
+     compileSdk = 37
+@@ -120,8 +127,8 @@ android {
+         abi {
+             isEnable = true
+             reset()
+-            include("armeabi-v7a", "arm64-v8a")
+-            isUniversalApk = true
++            include(*splitAbis.toTypedArray())
++            isUniversalApk = splitAbisProperty == null
+         }
+     }
+ 
+@@ -173,6 +180,7 @@ dependencies {
+     "baselineProfile"(project(":baselineprofile"))
+     coreLibraryDesugaring(libs.desugar)
+     testImplementation(libs.junit)
++    testImplementation(libs.robolectric)
+     androidTestImplementation(libs.bundles.androidTest)
+     implementation(libs.kotlin.stdlib)
+     implementation(libs.kotlinx.collections.immutable)
 diff --git a/docs/personal-patch-workflow.md b/docs/personal-patch-workflow.md
 new file mode 100644
-index 000000000..b109cc2c1
+index 000000000..852975534
 --- /dev/null
 +++ b/docs/personal-patch-workflow.md
-@@ -0,0 +1,103 @@
+@@ -0,0 +1,113 @@
 +# Personal Patch Workflow
 +
 +This fork follows upstream closely while keeping a small personal patch stack.
@@ -100,6 +202,12 @@ index 000000000..b109cc2c1
 +git format-patch --base=upstream/3.27 -o patches/personal/3.27 upstream/3.27..personal/3.27-tts
 +```
 +
++If patch files are committed back to the personal branch, do not include the patch archive commit in the next export range. Use the last non-patch commit as the range end:
++
++```bash
++git format-patch --base=upstream/3.27 -o patches/personal/3.27 upstream/3.27..<last-non-patch-commit>
++```
++
 +Recommended patch topics:
 +
 +- GitHub Actions build workflow
@@ -108,6 +216,10 @@ index 000000000..b109cc2c1
 +- Version, package, or release-specific build configuration
 +
 +Avoid one large patch. Small patches make conflicts easier to isolate.
++Avoid chronological bug-fix patches. When a later fix belongs to an existing
++feature area, fold it back into that feature patch instead of appending a new
++patch number. If several historical patches touched the same TTS state boundary,
++re-export the stack as functional patches before carrying it to the next release.
 +
 +## Applying Patches to a New Release
 +
@@ -166,6 +278,28 @@ index 000000000..b109cc2c1
 +```
 +
 +If the workflow fails, inspect the failing GitHub Actions logs and fix only the relevant patch.
+diff --git a/gradle/libs.versions.toml b/gradle/libs.versions.toml
+index 68760ee17..1f0e3c285 100644
+--- a/gradle/libs.versions.toml
++++ b/gradle/libs.versions.toml
+@@ -61,6 +61,7 @@ preference = "1.2.1"
+ protobufJavalite = "4.26.1"
+ quickChineseTransfer = "0.2.16"
+ room = "2.8.4"
++robolectric = "4.16.1"
+ splitties = "3.0.0"
+ rhino = "1.9.1"
+ desugar = "2.1.5"
+@@ -229,6 +230,7 @@ json-path = { module = "com.jayway.jsonpath:json-path", version.ref = "jsonPath"
+ jsoup = { module = "org.jsoup:jsoup", version.ref = "jsoup" }
+ jsoupxpath = { module = "cn.wanghaomiao:JsoupXpath", version.ref = "jsoupxpath" }
+ junit = { module = "junit:junit", version = "4.13.2" }
++robolectric = { module = "org.robolectric:robolectric", version.ref = "robolectric" }
+ kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }
+ kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
+ kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinxSerialization" }
+
+base-commit: b7e07a6478c2beeadd8027f0a2f7376ad302b644
 -- 
 2.33.0.windows.2
 
