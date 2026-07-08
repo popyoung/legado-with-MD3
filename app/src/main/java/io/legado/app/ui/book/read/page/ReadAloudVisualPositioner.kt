@@ -195,6 +195,18 @@ internal object ReadAloudVisualPositioner {
         return targetPageChanged && !scrollPageAnim
     }
 
+    fun shouldSyncVisualPageBeforeUserScroll(
+        readAloudFollowActive: Boolean,
+        visualChapterIndex: Int,
+        visualPageIndex: Int,
+        readBookChapterIndex: Int,
+        readBookPageIndex: Int
+    ): Boolean {
+        return readAloudFollowActive &&
+                visualChapterIndex == readBookChapterIndex &&
+                visualPageIndex != readBookPageIndex
+    }
+
     fun clearFollowState(state: FollowState): FollowState {
         return state.copy(readAloudOffset = 0, active = false)
     }

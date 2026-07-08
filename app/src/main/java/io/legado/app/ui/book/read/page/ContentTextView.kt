@@ -407,6 +407,7 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
 
     private fun resetReadAloudFollowByUserScroll() {
         if (!readAloudFollowActive && readAloudPageOffset == 0) return
+        syncReadBookVisualAnchorBeforeUserScroll()
         val textChapter = textPage.getTextChapter()
         val previousPage = textChapter.getPage(textPage.index - 1)
         val nextPage = textChapter.getPage(textPage.index + 1)
@@ -422,6 +423,27 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
         ReadAloudVisualTrace.record(
             "interruptFollowByScroll",
             "pageShift=${interruption.pageShift} ${readAloudVisualDebugState()}"
+        )
+    }
+
+    private fun syncReadBookVisualAnchorBeforeUserScroll() {
+        if (!ReadAloudVisualPositioner.shouldSyncVisualPageBeforeUserScroll(
+                readAloudFollowActive = readAloudFollowActive,
+                visualChapterIndex = textPage.chapterIndex,
+                visualPageIndex = textPage.index,
+                readBookChapterIndex = ReadBook.durChapterIndex,
+                readBookPageIndex = ReadBook.durPageIndex
+            )
+        ) {
+            return
+        }
+        val chapterPosition = textPage.lines.firstOrNull()?.chapterPosition
+        ReadBook.withReadAloudPageChange {
+            ReadBook.setPageIndex(textPage.index, chapterPosition)
+        }
+        ReadAloudVisualTrace.record(
+            event = "syncVisualAnchorBeforeScroll",
+            detail = "chapterPosition=$chapterPosition ${readAloudVisualDebugState()}"
         )
     }
 

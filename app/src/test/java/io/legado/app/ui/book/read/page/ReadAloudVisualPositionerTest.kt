@@ -504,6 +504,58 @@ class ReadAloudVisualPositionerTest {
     }
 
     @Test
+    fun activeFollowSyncsVisualAnchorBeforeUserScrollWhenReadBookPageMovedAhead() {
+        val shouldSync = ReadAloudVisualPositioner.shouldSyncVisualPageBeforeUserScroll(
+            readAloudFollowActive = true,
+            visualChapterIndex = 213,
+            visualPageIndex = 2,
+            readBookChapterIndex = 213,
+            readBookPageIndex = 3
+        )
+
+        assertTrue(shouldSync)
+    }
+
+    @Test
+    fun inactiveFollowDoesNotSyncVisualAnchorBeforeUserScroll() {
+        val shouldSync = ReadAloudVisualPositioner.shouldSyncVisualPageBeforeUserScroll(
+            readAloudFollowActive = false,
+            visualChapterIndex = 213,
+            visualPageIndex = 2,
+            readBookChapterIndex = 213,
+            readBookPageIndex = 3
+        )
+
+        assertFalse(shouldSync)
+    }
+
+    @Test
+    fun matchingReadBookPageDoesNotSyncVisualAnchorBeforeUserScroll() {
+        val shouldSync = ReadAloudVisualPositioner.shouldSyncVisualPageBeforeUserScroll(
+            readAloudFollowActive = true,
+            visualChapterIndex = 213,
+            visualPageIndex = 3,
+            readBookChapterIndex = 213,
+            readBookPageIndex = 3
+        )
+
+        assertFalse(shouldSync)
+    }
+
+    @Test
+    fun differentReadBookChapterDoesNotSyncVisualAnchorBeforeUserScroll() {
+        val shouldSync = ReadAloudVisualPositioner.shouldSyncVisualPageBeforeUserScroll(
+            readAloudFollowActive = true,
+            visualChapterIndex = 213,
+            visualPageIndex = 2,
+            readBookChapterIndex = 214,
+            readBookPageIndex = 0
+        )
+
+        assertFalse(shouldSync)
+    }
+
+    @Test
     fun clearFollowStateKeepsScrollOffset() {
         val state = ReadAloudVisualPositioner.clearFollowState(
             ReadAloudVisualPositioner.FollowState(
