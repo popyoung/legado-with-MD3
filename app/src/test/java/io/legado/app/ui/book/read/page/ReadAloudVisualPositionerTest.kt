@@ -173,6 +173,76 @@ class ReadAloudVisualPositionerTest {
     }
 
     @Test
+    fun nextChapterFirstPageCanBeNextVisualPageAfterCurrentLastPage() {
+        val relativePosition = ReadAloudVisualPositioner.relativePagePosition(
+            currentChapterIndex = 212,
+            currentPageIndex = 9,
+            currentPageSize = 10,
+            targetChapterIndex = 213,
+            targetPageIndex = 0,
+            previousChapterPageSize = 8
+        )
+
+        assertEquals(1, relativePosition)
+    }
+
+    @Test
+    fun nextChapterFirstPageCanBeSecondVisualPageAfterCurrentSecondLastPage() {
+        val relativePosition = ReadAloudVisualPositioner.relativePagePosition(
+            currentChapterIndex = 212,
+            currentPageIndex = 8,
+            currentPageSize = 10,
+            targetChapterIndex = 213,
+            targetPageIndex = 0,
+            previousChapterPageSize = 8
+        )
+
+        assertEquals(2, relativePosition)
+    }
+
+    @Test
+    fun nextChapterDistantPageIsOutsideVisualStream() {
+        val relativePosition = ReadAloudVisualPositioner.relativePagePosition(
+            currentChapterIndex = 212,
+            currentPageIndex = 9,
+            currentPageSize = 10,
+            targetChapterIndex = 213,
+            targetPageIndex = 2,
+            previousChapterPageSize = 8
+        )
+
+        assertNull(relativePosition)
+    }
+
+    @Test
+    fun previousChapterLastPageCanBePreviousVisualPageBeforeCurrentFirstPage() {
+        val relativePosition = ReadAloudVisualPositioner.relativePagePosition(
+            currentChapterIndex = 213,
+            currentPageIndex = 0,
+            currentPageSize = 9,
+            targetChapterIndex = 212,
+            targetPageIndex = 9,
+            previousChapterPageSize = 10
+        )
+
+        assertEquals(-1, relativePosition)
+    }
+
+    @Test
+    fun previousChapterNonLastPageIsOutsideVisualStream() {
+        val relativePosition = ReadAloudVisualPositioner.relativePagePosition(
+            currentChapterIndex = 213,
+            currentPageIndex = 0,
+            currentPageSize = 9,
+            targetChapterIndex = 212,
+            targetPageIndex = 8,
+            previousChapterPageSize = 10
+        )
+
+        assertNull(relativePosition)
+    }
+
+    @Test
     fun nextChapterOffsetContinuesAfterPreviousPage() {
         val offset = ReadAloudVisualPositioner.nextChapterOffset(
             previousEffectiveOffset = -420f,

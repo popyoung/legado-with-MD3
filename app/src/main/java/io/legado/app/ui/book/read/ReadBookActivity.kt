@@ -2372,6 +2372,9 @@ class ReadBookActivity : BaseReadBookActivity(),
         pageIndex: Int,
         paragraph: TextParagraph
     ): Int? {
+        if (readAloudParagraphVisibleOnScreen(textChapter, paragraph)) {
+            return null
+        }
         if (!ReadAloudVisualPositioner.shouldUseChapterBoundaryInitialOffset(
                 targetPageIndex = pageIndex,
                 previousChapterLastPageVisible = binding.readView.containsVisibleChapterLastPage(

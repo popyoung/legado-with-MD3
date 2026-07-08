@@ -68,6 +68,29 @@ internal object ReadAloudVisualPositioner {
         }
     }
 
+    fun relativePagePosition(
+        currentChapterIndex: Int,
+        currentPageIndex: Int,
+        currentPageSize: Int,
+        targetChapterIndex: Int,
+        targetPageIndex: Int,
+        previousChapterPageSize: Int?
+    ): Int? {
+        val relativePosition = when (targetChapterIndex) {
+            currentChapterIndex -> targetPageIndex - currentPageIndex
+            currentChapterIndex + 1 -> {
+                if (currentPageSize <= 0) return null
+                currentPageSize - currentPageIndex + targetPageIndex
+            }
+            currentChapterIndex - 1 -> {
+                val previousPageSize = previousChapterPageSize?.takeIf { it > 0 } ?: return null
+                targetPageIndex - previousPageSize - currentPageIndex
+            }
+            else -> return null
+        }
+        return relativePosition.takeIf { it in -1..2 }
+    }
+
     fun previousPageOffset(
         currentOffset: Float,
         previousPageHeight: Float
