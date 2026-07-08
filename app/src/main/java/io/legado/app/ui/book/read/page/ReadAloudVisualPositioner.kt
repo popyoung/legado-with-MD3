@@ -211,6 +211,20 @@ internal object ReadAloudVisualPositioner {
         return readAloudParagraphVisible
     }
 
+    fun shouldSkipProgressDuringVisualRestore(
+        restoringReadAloudVisualPosition: Boolean
+    ): Boolean {
+        return restoringReadAloudVisualPosition
+    }
+
+    fun shouldSuppressScrollAfterVisualRestore(
+        readAloudFollowActive: Boolean,
+        nowMillis: Long,
+        suppressUntilMillis: Long
+    ): Boolean {
+        return readAloudFollowActive && nowMillis <= suppressUntilMillis
+    }
+
     fun shouldFollowDuringRestore(
         readAloudVisualFollowPaused: Boolean,
         explicitFollowRestore: Boolean

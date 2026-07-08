@@ -1741,6 +1741,7 @@ class ReadBookActivity : BaseReadBookActivity(),
                         pageIndex = pageIndex,
                         paragraph = paragraph,
                         initialEffectiveOffset = null,
+                        suppressResidualScroll = true,
                         afterJump = {
                             ReadAloudVisualTrace.record(
                                 event = "restoreVisualResult",
@@ -1752,6 +1753,7 @@ class ReadBookActivity : BaseReadBookActivity(),
                         }
                     )
                 } else {
+                    binding.readView.suppressReadAloudVisualScrollAfterRestore()
                     ReadAloudVisualTrace.record(
                         event = "restoreVisualResult",
                         detail = "reason=${restoreReason.name} action=followVisible follow=true page=$pageIndex visual=[${binding.readView.readAloudVisualDebugState()}]"
@@ -1768,6 +1770,7 @@ class ReadBookActivity : BaseReadBookActivity(),
             pageIndex = pageIndex,
             paragraph = paragraph,
             initialEffectiveOffset = initialEffectiveOffset,
+            suppressResidualScroll = true,
             afterJump = {
                 ReadAloudVisualTrace.record(
                     event = "restoreVisualResult",
@@ -1785,16 +1788,20 @@ class ReadBookActivity : BaseReadBookActivity(),
         pageIndex: Int,
         paragraph: TextParagraph?,
         initialEffectiveOffset: Int?,
+        suppressResidualScroll: Boolean = false,
         afterJump: () -> Unit = {},
         isCurrent: () -> Boolean = { true }
     ) {
         ReadBook.withReadAloudPageChange {
             ReadBook.skipToPage(pageIndex) {
                 if (!isCurrent()) return@skipToPage
-                paragraph?.let {
+                val followed = paragraph?.let {
                     updateReadAloudParagraphSpan(it)
                     if (!isCurrent()) return@skipToPage
                     binding.readView.followReadAloudParagraph(it, initialEffectiveOffset)
+                } == true
+                if (suppressResidualScroll && followed) {
+                    binding.readView.suppressReadAloudVisualScrollAfterRestore()
                 }
                 if (isCurrent()) {
                     afterJump()
@@ -1812,9 +1819,7 @@ class ReadBookActivity : BaseReadBookActivity(),
             ReadBook.readAloud(startPos = line.pagePosition)
             return
         }
-        val paragraph = textChapter.paragraphs.firstOrNull {
-            line.chapterPosition in it.chapterIndices
-        }
+        val paragraph = findReadAloudParagraph(textChapter, line.chapterPosition)
         if (paragraph == null) {
             ReadBook.durChapterPos = line.chapterPosition
             ReadAloudVisualTrace.record(
@@ -2278,6 +2283,16 @@ class ReadBookActivity : BaseReadBookActivity(),
         chapterStart: Int,
         textChapter: TextChapter
     ) {
+        if (ReadAloudVisualPositioner.shouldSkipProgressDuringVisualRestore(
+                restoringReadAloudVisualPosition = restoringReadAloudVisualPosition
+            )
+        ) {
+            ReadAloudVisualTrace.record(
+                event = "ttsProgressSkip",
+                detail = "reason=restoreInProgress chapterStart=$chapterStart read=${BaseReadAloudService.readAloudChapterIndex}/${BaseReadAloudService.readAloudChapterStart} textChapter=${textChapter.chapter.index} dur=${ReadBook.durChapterIndex}/${ReadBook.durPageIndex}/${ReadBook.durChapterPos} visual=[${binding.readView.readAloudVisualDebugState()}]"
+            )
+            return
+        }
         val paragraph = findReadAloudParagraph(textChapter, chapterStart) ?: return
         val pageIndex = paragraph.firstLine.textPage.index
         ReadAloudVisualTrace.record(

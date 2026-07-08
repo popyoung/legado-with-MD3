@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.DashPathEffect
 import android.graphics.Paint
+import android.os.SystemClock
 import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.View
@@ -70,6 +71,7 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
     private var isScroll = false
     private var readAloudFollowActive = false
     private var readAloudVisualCenterIndicator = false
+    private var readAloudVisualScrollSuppressedUntil = 0L
     private val renderRunnable by lazy { Runnable { preRenderPage() } }
     private var lastClickTime = 0L
     private var doubleClick = false
@@ -274,6 +276,19 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
      */
     fun scroll(mOffset: Int) {
         val beforeState = readAloudVisualDebugState()
+        if (ReadAloudVisualPositioner.shouldSuppressScrollAfterVisualRestore(
+                readAloudFollowActive = readAloudFollowActive,
+                nowMillis = SystemClock.uptimeMillis(),
+                suppressUntilMillis = readAloudVisualScrollSuppressedUntil
+            )
+        ) {
+            ReadAloudVisualTrace.record(
+                event = "scrollSuppressedAfterRestore",
+                detail = "mOffset=$mOffset before=[$beforeState]"
+            )
+            postInvalidate()
+            return
+        }
         resetReadAloudFollowByUserScroll()
         pageOffset += mOffset
         if (longScreenshot) {
@@ -358,6 +373,13 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
         applyReadAloudFollowState(cleared)
         ReadAloudVisualTrace.record("clearFollow", readAloudVisualDebugState())
         postInvalidate()
+    }
+
+    fun suppressReadAloudVisualScrollAfterRestore() {
+        readAloudVisualScrollSuppressedUntil = max(
+            readAloudVisualScrollSuppressedUntil,
+            SystemClock.uptimeMillis() + READ_ALOUD_VISUAL_RESTORE_SCROLL_SUPPRESS_MS
+        )
     }
 
     private fun readAloudFollowState(): ReadAloudVisualPositioner.FollowState {
@@ -1189,6 +1211,7 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
                 Thread(it, "TextPageRender")
             }
         }
+        private const val READ_ALOUD_VISUAL_RESTORE_SCROLL_SUPPRESS_MS = 300L
         private val cursorWidth = 24.dpToPx()
     }
 

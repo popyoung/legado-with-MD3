@@ -449,6 +449,10 @@ class PageView(context: Context) : FrameLayout(context) {
         binding.contentTextView.clearReadAloudVisualFollow()
     }
 
+    fun suppressReadAloudVisualScrollAfterRestore() {
+        binding.contentTextView.suppressReadAloudVisualScrollAfterRestore()
+    }
+
     fun readAloudNextChapterOffset(): Int? {
         return binding.contentTextView.readAloudNextChapterOffset()
     }

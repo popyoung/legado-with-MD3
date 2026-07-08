@@ -544,6 +544,57 @@ class ReadAloudVisualPositionerTest {
     }
 
     @Test
+    fun progressUpdatesWaitForVisualRestoreToFinish() {
+        val shouldSkip = ReadAloudVisualPositioner.shouldSkipProgressDuringVisualRestore(
+            restoringReadAloudVisualPosition = true
+        )
+
+        assertTrue(shouldSkip)
+    }
+
+    @Test
+    fun progressUpdatesContinueWhenNoVisualRestoreIsRunning() {
+        val shouldSkip = ReadAloudVisualPositioner.shouldSkipProgressDuringVisualRestore(
+            restoringReadAloudVisualPosition = false
+        )
+
+        assertFalse(shouldSkip)
+    }
+
+    @Test
+    fun activeFollowSuppressesResidualScrollInsideRestoreWindow() {
+        val shouldSuppress = ReadAloudVisualPositioner.shouldSuppressScrollAfterVisualRestore(
+            readAloudFollowActive = true,
+            nowMillis = 100,
+            suppressUntilMillis = 300
+        )
+
+        assertTrue(shouldSuppress)
+    }
+
+    @Test
+    fun inactiveFollowDoesNotSuppressScrollInsideRestoreWindow() {
+        val shouldSuppress = ReadAloudVisualPositioner.shouldSuppressScrollAfterVisualRestore(
+            readAloudFollowActive = false,
+            nowMillis = 100,
+            suppressUntilMillis = 300
+        )
+
+        assertFalse(shouldSuppress)
+    }
+
+    @Test
+    fun activeFollowDoesNotSuppressScrollAfterRestoreWindow() {
+        val shouldSuppress = ReadAloudVisualPositioner.shouldSuppressScrollAfterVisualRestore(
+            readAloudFollowActive = true,
+            nowMillis = 301,
+            suppressUntilMillis = 300
+        )
+
+        assertFalse(shouldSuppress)
+    }
+
+    @Test
     fun pausedVisualFollowBlocksImplicitRestoreFollow() {
         val shouldFollow = ReadAloudVisualPositioner.shouldFollowDuringRestore(
             readAloudVisualFollowPaused = true,

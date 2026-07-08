@@ -714,6 +714,10 @@ class ReadView(context: Context, attrs: AttributeSet) :
         return curPage.followReadAloudParagraph(paragraph, initialEffectiveOffset)
     }
 
+    fun suppressReadAloudVisualScrollAfterRestore() {
+        curPage.suppressReadAloudVisualScrollAfterRestore()
+    }
+
     fun setReadAloudVisualCenterIndicator(show: Boolean): Boolean {
         return curPage.setReadAloudVisualCenterIndicator(show)
     }
