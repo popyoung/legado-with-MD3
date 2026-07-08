@@ -188,6 +188,13 @@ internal object ReadAloudVisualPositioner {
         return explicitFollowRestore || !readAloudVisualFollowPaused
     }
 
+    fun shouldSyncReadBookPageBeforeManualStepProgress(
+        scrollPageAnim: Boolean,
+        targetPageChanged: Boolean
+    ): Boolean {
+        return targetPageChanged && !scrollPageAnim
+    }
+
     fun clearFollowState(state: FollowState): FollowState {
         return state.copy(readAloudOffset = 0, active = false)
     }

@@ -474,6 +474,36 @@ class ReadAloudVisualPositionerTest {
     }
 
     @Test
+    fun scrollModeDefersReadBookPageSyncBeforeManualStepProgress() {
+        val shouldSync = ReadAloudVisualPositioner.shouldSyncReadBookPageBeforeManualStepProgress(
+            scrollPageAnim = true,
+            targetPageChanged = true
+        )
+
+        assertFalse(shouldSync)
+    }
+
+    @Test
+    fun nonScrollModeKeepsReadBookPageSyncBeforeManualStepProgress() {
+        val shouldSync = ReadAloudVisualPositioner.shouldSyncReadBookPageBeforeManualStepProgress(
+            scrollPageAnim = false,
+            targetPageChanged = true
+        )
+
+        assertTrue(shouldSync)
+    }
+
+    @Test
+    fun unchangedTargetPageDoesNotNeedReadBookPageSyncBeforeManualStepProgress() {
+        val shouldSync = ReadAloudVisualPositioner.shouldSyncReadBookPageBeforeManualStepProgress(
+            scrollPageAnim = false,
+            targetPageChanged = false
+        )
+
+        assertFalse(shouldSync)
+    }
+
+    @Test
     fun clearFollowStateKeepsScrollOffset() {
         val state = ReadAloudVisualPositioner.clearFollowState(
             ReadAloudVisualPositioner.FollowState(

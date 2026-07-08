@@ -45,6 +45,7 @@ import io.legado.app.model.ReadAloudPageChangePolicy
 import io.legado.app.model.ReadBook
 import io.legado.app.receiver.MediaButtonReceiver
 import io.legado.app.ui.book.read.ReadBookActivity
+import io.legado.app.ui.book.read.page.ReadAloudVisualPositioner
 import io.legado.app.ui.book.read.page.entities.TextChapter
 import io.legado.app.utils.LogUtils
 import io.legado.app.utils.activityPendingIntent
@@ -445,10 +446,18 @@ abstract class BaseReadAloudService : BaseService(),
 
     private fun syncReadBookPageToReadAloudPosition(textChapter: TextChapter) {
         val targetPageIndex = textChapter.getPageIndexByCharIndex(readAloudNumber)
-        if (targetPageIndex < 0 || targetPageIndex == pageIndex) {
+        if (targetPageIndex < 0) {
             return
         }
+        val targetPageChanged = targetPageIndex != pageIndex
         pageIndex = targetPageIndex
+        if (!ReadAloudVisualPositioner.shouldSyncReadBookPageBeforeManualStepProgress(
+                scrollPageAnim = ReadBook.pageAnim() == 3,
+                targetPageChanged = targetPageChanged
+            )
+        ) {
+            return
+        }
         ReadBook.withReadAloudPageChange {
             ReadBook.skipToPage(pageIndex, chapterPos = readAloudNumber)
         }
