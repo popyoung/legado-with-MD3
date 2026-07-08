@@ -4,21 +4,21 @@ Date: Wed, 8 Jul 2026 00:00:00 +0800
 Subject: [PATCH 1/5] Set up personal APK build workflow and versioning
 
 ---
- .github/workflows/ci.yml        |  55 +++++++++++++++++++
+ .github/workflows/ci.yml        |  81 +++++++++++++++++++++++++++
  AGENTS.md                       |  10 ++++
  CLAUDE.md                       |  12 +++++
  app/build.gradle.kts            |  20 +++++--
  app/version.properties          |   3 +-
- docs/personal-patch-workflow.md | 114 ++++++++++++++++++++++++++++++++++++++++
+ docs/personal-patch-workflow.md | 120 ++++++++++++++++++++++++++++++++++++++++
  gradle/libs.versions.toml       |   2 +
- 7 files changed, 212 insertions(+), 4 deletions(-)
+ 7 files changed, 244 insertions(+), 4 deletions(-)
 ---
 diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
 new file mode 100644
-index 000000000..d6ac4fd01
+index 000000000..2633026c8
 --- /dev/null
 +++ b/.github/workflows/ci.yml
-@@ -0,0 +1,55 @@
+@@ -0,0 +1,81 @@
 +name: Build APK
 +
 +on:
@@ -67,11 +67,37 @@ index 000000000..d6ac4fd01
 +      - name: Build arm64-v8a noR8 APK
 +        run: ./gradlew --no-configuration-cache -Plegado.splitAbis=arm64-v8a :app:assembleAppNoR8
 +
++      - name: Prepare versioned APK artifact
++        id: apk_artifact
++        shell: bash
++        run: |
++          set -euo pipefail
++          source app/version.properties
++
++          version_name="${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH}"
++          if [[ -n "${VERSION_PERSONAL:-}" && "${VERSION_PERSONAL}" != "0" ]]; then
++            version_name="${version_name}.${VERSION_PERSONAL}"
++          fi
++          version_name="${version_name}-noR8"
++
++          artifact_name="legado-${version_name}-arm64-v8a-unsigned-apk"
++          apk_name="legado-${version_name}-arm64-v8a-unsigned.apk"
++          output_dir="app/build/outputs/apk/versioned"
++          apk_path="$(find app/build/outputs/apk -path '*/noR8/*arm64-v8a*.apk' -type f -print -quit)"
++          if [[ -z "$apk_path" ]]; then
++            echo "No arm64-v8a noR8 APK found" >&2
++            exit 1
++          fi
++
++          mkdir -p "$output_dir"
++          cp "$apk_path" "$output_dir/$apk_name"
++          echo "artifact_name=$artifact_name" >> "$GITHUB_OUTPUT"
++
 +      - name: Upload APKs
 +        uses: actions/upload-artifact@v4
 +        with:
-+          name: legado-arm64-v8a-noR8-unsigned-apk
-+          path: app/build/outputs/apk/**/noR8/*arm64-v8a*.apk
++          name: ${{ steps.apk_artifact.outputs.artifact_name }}
++          path: app/build/outputs/apk/versioned/*.apk
 +          if-no-files-found: error
 +          retention-days: 14
 diff --git a/AGENTS.md b/AGENTS.md
@@ -292,10 +318,16 @@ index 000000000..186570394
 +gh workflow run ci.yml --ref personal/3.28-tts
 +```
 +
-+The expected artifact is:
++The expected artifact name includes the app version from `app/version.properties`:
 +
 +```text
-+legado-arm64-v8a-noR8-unsigned-apk
++legado-<version>-noR8-arm64-v8a-unsigned-apk
++```
++
++The APK file inside the artifact follows the same versioned name:
++
++```text
++legado-<version>-noR8-arm64-v8a-unsigned.apk
 +```
 +
 +If the workflow fails, inspect the failing GitHub Actions logs and fix only the relevant patch.

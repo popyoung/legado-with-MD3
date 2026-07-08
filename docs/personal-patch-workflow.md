@@ -105,10 +105,16 @@ Do not verify with local Gradle. Trigger the single GitHub Actions workflow:
 gh workflow run ci.yml --ref personal/3.28-tts
 ```
 
-The expected artifact is:
+The expected artifact name includes the app version from `app/version.properties`:
 
 ```text
-legado-arm64-v8a-noR8-unsigned-apk
+legado-<version>-noR8-arm64-v8a-unsigned-apk
+```
+
+The APK file inside the artifact follows the same versioned name:
+
+```text
+legado-<version>-noR8-arm64-v8a-unsigned.apk
 ```
 
 If the workflow fails, inspect the failing GitHub Actions logs and fix only the relevant patch.

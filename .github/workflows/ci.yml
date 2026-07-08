@@ -46,10 +46,36 @@ jobs:
       - name: Build arm64-v8a noR8 APK
         run: ./gradlew --no-configuration-cache -Plegado.splitAbis=arm64-v8a :app:assembleAppNoR8
 
+      - name: Prepare versioned APK artifact
+        id: apk_artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          source app/version.properties
+
+          version_name="${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH}"
+          if [[ -n "${VERSION_PERSONAL:-}" && "${VERSION_PERSONAL}" != "0" ]]; then
+            version_name="${version_name}.${VERSION_PERSONAL}"
+          fi
+          version_name="${version_name}-noR8"
+
+          artifact_name="legado-${version_name}-arm64-v8a-unsigned-apk"
+          apk_name="legado-${version_name}-arm64-v8a-unsigned.apk"
+          output_dir="app/build/outputs/apk/versioned"
+          apk_path="$(find app/build/outputs/apk -path '*/noR8/*arm64-v8a*.apk' -type f -print -quit)"
+          if [[ -z "$apk_path" ]]; then
+            echo "No arm64-v8a noR8 APK found" >&2
+            exit 1
+          fi
+
+          mkdir -p "$output_dir"
+          cp "$apk_path" "$output_dir/$apk_name"
+          echo "artifact_name=$artifact_name" >> "$GITHUB_OUTPUT"
+
       - name: Upload APKs
         uses: actions/upload-artifact@v4
         with:
-          name: legado-arm64-v8a-noR8-unsigned-apk
-          path: app/build/outputs/apk/**/noR8/*arm64-v8a*.apk
+          name: ${{ steps.apk_artifact.outputs.artifact_name }}
+          path: app/build/outputs/apk/versioned/*.apk
           if-no-files-found: error
           retention-days: 14
