@@ -603,9 +603,11 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
         }
     }
 
-    fun setPageIndex(index: Int) {
+    fun setPageIndex(index: Int, chapterPos: Int? = null) {
         recycleRecorders(durPageIndex, index)
-        durChapterPos = curTextChapter?.getReadLength(index) ?: index
+        durChapterPos = chapterPos?.coerceAtLeast(0)
+            ?: curTextChapter?.getReadLength(index)
+            ?: index
         saveRead(true)
         curPageChanged(true)
     }

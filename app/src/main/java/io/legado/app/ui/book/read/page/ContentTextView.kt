@@ -373,9 +373,10 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
         )
         readAloudPageOffset = effectiveOffset - pageOffset
         readAloudFollowActive = true
+        val pageShift = materializeReadAloudFollowAnchor(paragraph.chapterPosition)
         ReadAloudVisualTrace.record(
             event = "follow",
-            detail = "target=${firstLine.textPage.chapterIndex}/${firstLine.textPage.index} paragraph=${paragraph.chapterPosition}-${paragraph.chapterIndices.last} top=$paragraphTop bottom=$paragraphBottom initial=$initialEffectiveOffset effective=$effectiveOffset ${readAloudVisualDebugState()}"
+            detail = "target=${firstLine.textPage.chapterIndex}/${firstLine.textPage.index} paragraph=${paragraph.chapterPosition}-${paragraph.chapterIndices.last} top=$paragraphTop bottom=$paragraphBottom initial=$initialEffectiveOffset effective=$effectiveOffset pageShift=$pageShift ${readAloudVisualDebugState()}"
         )
         postInvalidate()
         return true
@@ -417,6 +418,42 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
             nextPageHeight = nextPage?.height,
             nextPlusPageHeight = nextPlusPage?.height
         )
+        applyReadAloudMaterializedFollow(interruption, previousPage, nextPage, nextPlusPage)
+        ReadAloudVisualTrace.record(
+            "interruptFollowByScroll",
+            "pageShift=${interruption.pageShift} ${readAloudVisualDebugState()}"
+        )
+    }
+
+    private fun materializeReadAloudFollowAnchor(chapterPosition: Int): Int {
+        val textChapter = textPage.getTextChapter()
+        val previousPage = textChapter.getPage(textPage.index - 1)
+        val nextPage = textChapter.getPage(textPage.index + 1)
+        val nextPlusPage = textChapter.getPage(textPage.index + 2)
+        val materialized = ReadAloudVisualPositioner.materializeFollowAnchor(
+            state = readAloudFollowState(),
+            previousPageHeight = previousPage?.height,
+            currentPageHeight = textPage.height,
+            nextPageHeight = nextPage?.height,
+            nextPlusPageHeight = nextPlusPage?.height
+        )
+        applyReadAloudMaterializedFollow(
+            interruption = materialized,
+            previousPage = previousPage,
+            nextPage = nextPage,
+            nextPlusPage = nextPlusPage,
+            chapterPosition = chapterPosition
+        )
+        return materialized.pageShift
+    }
+
+    private fun applyReadAloudMaterializedFollow(
+        interruption: ReadAloudVisualPositioner.InterruptedFollowState,
+        previousPage: TextPage?,
+        nextPage: TextPage?,
+        nextPlusPage: TextPage?,
+        chapterPosition: Int? = null
+    ) {
         when (interruption.pageShift) {
             -1 -> previousPage
             1 -> nextPage
@@ -424,15 +461,11 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
             else -> null
         }?.let {
             ReadBook.withReadAloudPageChange {
-                ReadBook.setPageIndex(it.index)
+                ReadBook.setPageIndex(it.index, chapterPosition)
             }
             textPage = it
         }
         applyReadAloudFollowState(interruption.state)
-        ReadAloudVisualTrace.record(
-            "interruptFollowByScroll",
-            "pageShift=${interruption.pageShift} ${readAloudVisualDebugState()}"
-        )
     }
 
     fun setReadAloudVisualCenterIndicator(show: Boolean): Boolean {
@@ -444,7 +477,7 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
     }
 
     fun readAloudVisualDebugState(): String {
-        return "textPage=${textPage.chapterIndex}/${textPage.index} pageSize=${textPage.pageSize} pageOffset=$pageOffset readAloudOffset=$readAloudPageOffset active=$readAloudFollowActive indicator=$readAloudVisualCenterIndicator content0=${drawContentOffset(0)} content1=${drawContentOffset(1)}"
+        return "textPage=${textPage.chapterIndex}/${textPage.index} pageSize=${textPage.pageSize} pageOffset=$pageOffset readAloudOffset=$readAloudPageOffset active=$readAloudFollowActive indicator=$readAloudVisualCenterIndicator content0=${drawContentOffset(0)} content1=${drawContentOffset(1)} content2=${drawContentOffset(2)}"
     }
 
     /**

@@ -214,6 +214,25 @@ internal object ReadAloudVisualPositioner {
         nextPageHeight: Float?,
         nextPlusPageHeight: Float?
     ): InterruptedFollowState {
+        val materialized = materializeFollowAnchor(
+            state = state,
+            previousPageHeight = previousPageHeight,
+            currentPageHeight = currentPageHeight,
+            nextPageHeight = nextPageHeight,
+            nextPlusPageHeight = nextPlusPageHeight
+        )
+        return materialized.copy(
+            state = materialized.state.copy(active = false)
+        )
+    }
+
+    fun materializeFollowAnchor(
+        state: FollowState,
+        previousPageHeight: Float?,
+        currentPageHeight: Float,
+        nextPageHeight: Float?,
+        nextPlusPageHeight: Float?
+    ): InterruptedFollowState {
         var pageShift = 0
         var pageOffset = contentOffset(
             pageOffset = state.pageOffset.toFloat(),
@@ -242,7 +261,7 @@ internal object ReadAloudVisualPositioner {
             state = state.copy(
                 pageOffset = pageOffset.roundToInt(),
                 readAloudOffset = 0,
-                active = false
+                active = state.active
             )
         )
     }

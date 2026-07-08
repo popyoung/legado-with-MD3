@@ -574,6 +574,46 @@ class ReadAloudVisualPositionerTest {
     }
 
     @Test
+    fun followAnchorMaterializesNextVisualPageWithoutClearingFollow() {
+        val materialized = ReadAloudVisualPositioner.materializeFollowAnchor(
+            state = ReadAloudVisualPositioner.FollowState(
+                pageOffset = 0,
+                readAloudOffset = -4575,
+                active = true
+            ),
+            previousPageHeight = 3051f,
+            currentPageHeight = 3051f,
+            nextPageHeight = 3032f,
+            nextPlusPageHeight = 3032f
+        )
+
+        assertEquals(1, materialized.pageShift)
+        assertEquals(-1524, materialized.state.pageOffset)
+        assertEquals(0, materialized.state.readAloudOffset)
+        assertEquals(true, materialized.state.active)
+    }
+
+    @Test
+    fun followAnchorMaterializesSecondNextVisualPageWithoutClearingFollow() {
+        val materialized = ReadAloudVisualPositioner.materializeFollowAnchor(
+            state = ReadAloudVisualPositioner.FollowState(
+                pageOffset = 0,
+                readAloudOffset = -6775,
+                active = true
+            ),
+            previousPageHeight = 3051f,
+            currentPageHeight = 3051f,
+            nextPageHeight = 3032f,
+            nextPlusPageHeight = 3032f
+        )
+
+        assertEquals(2, materialized.pageShift)
+        assertEquals(-692, materialized.state.pageOffset)
+        assertEquals(0, materialized.state.readAloudOffset)
+        assertEquals(true, materialized.state.active)
+    }
+
+    @Test
     fun resetPageStateClearsScrollOffset() {
         val state = ReadAloudVisualPositioner.resetPageState(
             ReadAloudVisualPositioner.FollowState(
