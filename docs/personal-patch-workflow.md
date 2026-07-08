@@ -49,6 +49,10 @@ Recommended patch topics:
 - Version, package, or release-specific build configuration
 
 Avoid one large patch. Small patches make conflicts easier to isolate.
+Avoid chronological bug-fix patches. When a later fix belongs to an existing
+feature area, fold it back into that feature patch instead of appending a new
+patch number. If several historical patches touched the same TTS state boundary,
+re-export the stack as functional patches before carrying it to the next release.
 
 ## Applying Patches to a New Release
 
