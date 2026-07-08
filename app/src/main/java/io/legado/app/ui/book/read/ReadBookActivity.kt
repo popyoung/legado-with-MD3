@@ -284,7 +284,7 @@ class ReadBookActivity : BaseReadBookActivity(),
     private var restoringReadAloudVisualPosition = false
     private var readAloudRestoreSerial = 0
     private var readAloudRestoreLoadingSerial = 0
-    private var readAloudHighlightedPageIndices = emptySet<Int>()
+    private var readAloudHighlightedPages = emptySet<ReadAloudParagraphHighlighter.HighlightedPage>()
     private val handler by lazy { buildMainHandler() }
     private val screenOffRunnable by lazy { Runnable { keepScreenOn(false) } }
     private val executor = ReadBook.executor
@@ -1711,7 +1711,7 @@ class ReadBookActivity : BaseReadBookActivity(),
         } == true
         if (!followDuringRestore) {
             if (paragraph != null && readAloudParagraphVisible) {
-                updateReadAloudParagraphSpan(textChapter, paragraph)
+                updateReadAloudParagraphSpan(paragraph)
                 binding.readView.curPage.invalidateContentView()
             }
             updateReadAloudVisualCenterIndicator()
@@ -1733,7 +1733,7 @@ class ReadBookActivity : BaseReadBookActivity(),
                     )
                     return@upContent
                 }
-                updateReadAloudParagraphSpan(textChapter, paragraph)
+                updateReadAloudParagraphSpan(paragraph)
                 val followed = binding.readView.followReadAloudParagraph(paragraph)
                 if (!followed) {
                     jumpToReadAloudPage(
@@ -1792,7 +1792,7 @@ class ReadBookActivity : BaseReadBookActivity(),
             ReadBook.skipToPage(pageIndex) {
                 if (!isCurrent()) return@skipToPage
                 paragraph?.let {
-                    updateReadAloudParagraphSpan(textChapter, it)
+                    updateReadAloudParagraphSpan(it)
                     if (!isCurrent()) return@skipToPage
                     binding.readView.followReadAloudParagraph(it, initialEffectiveOffset)
                 }
@@ -2225,8 +2225,8 @@ class ReadBookActivity : BaseReadBookActivity(),
         }
         observeEvent<Int>(EventBus.ALOUD_STATE) {
             if (it == Status.STOP || it == Status.PAUSE) {
-                ReadBook.curTextChapter?.let { textChapter ->
-                    clearReadAloudParagraphSpan(textChapter)
+                if (ReadBook.curTextChapter != null) {
+                    clearReadAloudParagraphSpan()
                     readView.upContent(resetPageOffset = false)
                 }
                 readView.setReadAloudVisualCenterIndicator(false)
@@ -2292,7 +2292,7 @@ class ReadBookActivity : BaseReadBookActivity(),
                     )
                 )
             ) {
-                updateReadAloudParagraphSpan(textChapter, paragraph)
+                updateReadAloudParagraphSpan(paragraph)
                 binding.readView.curPage.invalidateContentView()
             }
             updateReadAloudVisualCenterIndicator()
@@ -2300,7 +2300,7 @@ class ReadBookActivity : BaseReadBookActivity(),
         }
 
         val initialEffectiveOffset = readAloudNextChapterInitialOffset(textChapter, pageIndex, paragraph)
-        updateReadAloudParagraphSpan(textChapter, paragraph)
+        updateReadAloudParagraphSpan(paragraph)
         val followSucceeded = binding.readView.followReadAloudParagraph(
             paragraph = paragraph,
             initialEffectiveOffset = initialEffectiveOffset
@@ -2323,7 +2323,7 @@ class ReadBookActivity : BaseReadBookActivity(),
             }
             ReadAloudVisualPositioner.FollowFallback.RefreshCurrentPage -> {
                 upContent(resetPageOffset = false) {
-                    updateReadAloudParagraphSpan(textChapter, paragraph)
+                    updateReadAloudParagraphSpan(paragraph)
                     if (!binding.readView.followReadAloudParagraph(
                             paragraph = paragraph,
                             initialEffectiveOffset = initialEffectiveOffset
@@ -2414,23 +2414,18 @@ class ReadBookActivity : BaseReadBookActivity(),
             ?: textChapter.paragraphs.lastOrNull()
     }
 
-    private fun clearReadAloudParagraphSpan(textChapter: TextChapter) {
-        ReadAloudParagraphHighlighter.clear(readAloudHighlightedPageIndices) { index ->
-            textChapter.getPage(index)
-        }
-        readAloudHighlightedPageIndices = emptySet()
+    private fun clearReadAloudParagraphSpan() {
+        ReadAloudParagraphHighlighter.clear(readAloudHighlightedPages)
+        readAloudHighlightedPages = emptySet()
     }
 
     private fun updateReadAloudParagraphSpan(
-        textChapter: TextChapter,
         paragraph: TextParagraph
     ) {
-        readAloudHighlightedPageIndices = ReadAloudParagraphHighlighter.update(
+        readAloudHighlightedPages = ReadAloudParagraphHighlighter.update(
             paragraph = paragraph,
-            highlightedPageIndices = readAloudHighlightedPageIndices
-        ) { index ->
-            textChapter.getPage(index)
-        }
+            highlightedPages = readAloudHighlightedPages
+        )
     }
 
     private fun upScreenTimeOut() {

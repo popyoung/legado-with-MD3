@@ -4,21 +4,21 @@ Date: Wed, 8 Jul 2026 00:00:00 +0800
 Subject: [PATCH 3/5] Refine TTS visual follow and highlighting
 
 ---
- .../io/legado/app/ui/book/read/ReadBookActivity.kt | 551 +++++++++++++-
+ .../io/legado/app/ui/book/read/ReadBookActivity.kt | 548 +++++++++++++-
  .../app/ui/book/read/page/ContentTextView.kt       | 470 +++++++++++-
  .../io/legado/app/ui/book/read/page/PageView.kt    |  38 +-
- .../read/page/ReadAloudParagraphHighlighter.kt     |  27 +
+ .../read/page/ReadAloudParagraphHighlighter.kt     |  49 ++
  .../ui/book/read/page/ReadAloudVisualPositioner.kt | 314 ++++++++
  .../io/legado/app/ui/book/read/page/ReadView.kt    |  38 +-
  .../app/ui/book/read/page/entities/TextLine.kt     |  11 +-
  .../app/ui/book/read/page/entities/TextPage.kt     |  15 +-
  .../ui/book/read/page/provider/TextPageFactory.kt  |   3 +
- .../read/page/ReadAloudParagraphHighlighterTest.kt |  76 ++
+ .../read/page/ReadAloudParagraphHighlighterTest.kt |  95 +++
  .../read/page/ReadAloudVisualPositionerTest.kt     | 807 +++++++++++++++++++++
- 11 files changed, 2280 insertions(+), 70 deletions(-)
+ 11 files changed, 2317 insertions(+), 71 deletions(-)
 ---
 diff --git a/app/src/main/java/io/legado/app/ui/book/read/ReadBookActivity.kt b/app/src/main/java/io/legado/app/ui/book/read/ReadBookActivity.kt
-index db62d85de..3fbe7ede0 100644
+index db62d85de..4f44c1368 100644
 --- a/app/src/main/java/io/legado/app/ui/book/read/ReadBookActivity.kt
 +++ b/app/src/main/java/io/legado/app/ui/book/read/ReadBookActivity.kt
 @@ -57,6 +57,7 @@ import io.legado.app.lib.dialogs.SelectItem
@@ -53,7 +53,7 @@ index db62d85de..3fbe7ede0 100644
 +    private var restoringReadAloudVisualPosition = false
 +    private var readAloudRestoreSerial = 0
 +    private var readAloudRestoreLoadingSerial = 0
-+    private var readAloudHighlightedPageIndices = emptySet<Int>()
++    private var readAloudHighlightedPages = emptySet<ReadAloudParagraphHighlighter.HighlightedPage>()
      private val handler by lazy { buildMainHandler() }
      private val screenOffRunnable by lazy { Runnable { keepScreenOn(false) } }
      private val executor = ReadBook.executor
@@ -335,7 +335,7 @@ index db62d85de..3fbe7ede0 100644
 +        } == true
 +        if (!followDuringRestore) {
 +            if (paragraph != null && readAloudParagraphVisible) {
-+                updateReadAloudParagraphSpan(textChapter, paragraph)
++                updateReadAloudParagraphSpan(paragraph)
 +                binding.readView.curPage.invalidateContentView()
 +            }
 +            updateReadAloudVisualCenterIndicator()
@@ -357,7 +357,7 @@ index db62d85de..3fbe7ede0 100644
 +                    )
 +                    return@upContent
 +                }
-+                updateReadAloudParagraphSpan(textChapter, paragraph)
++                updateReadAloudParagraphSpan(paragraph)
 +                val followed = binding.readView.followReadAloudParagraph(paragraph)
 +                if (!followed) {
 +                    jumpToReadAloudPage(
@@ -421,7 +421,7 @@ index db62d85de..3fbe7ede0 100644
 +            ReadBook.skipToPage(pageIndex) {
 +                if (!isCurrent()) return@skipToPage
 +                paragraph?.let {
-+                    updateReadAloudParagraphSpan(textChapter, it)
++                    updateReadAloudParagraphSpan(it)
 +                    if (!isCurrent()) return@skipToPage
 +                    binding.readView.followReadAloudParagraph(it, initialEffectiveOffset)
 +                }
@@ -478,16 +478,18 @@ index db62d85de..3fbe7ede0 100644
      /**
       * 点击图片
       */
-@@ -1906,23 +2226,23 @@ class ReadBookActivity : BaseReadBookActivity(),
+@@ -1905,24 +2225,24 @@ class ReadBookActivity : BaseReadBookActivity(),
+         }
          observeEvent<Int>(EventBus.ALOUD_STATE) {
              if (it == Status.STOP || it == Status.PAUSE) {
-                 ReadBook.curTextChapter?.let { textChapter ->
+-                ReadBook.curTextChapter?.let { textChapter ->
 -                    val page = textChapter.getPageByReadPos(ReadBook.durChapterPos)
 -                    if (page != null) {
 -                        page.removePageAloudSpan()
 -                        readView.upContent(resetPageOffset = false)
 -                    }
-+                    clearReadAloudParagraphSpan(textChapter)
++                if (ReadBook.curTextChapter != null) {
++                    clearReadAloudParagraphSpan()
 +                    readView.upContent(resetPageOffset = false)
                  }
 +                readView.setReadAloudVisualCenterIndicator(false)
@@ -514,7 +516,7 @@ index db62d85de..3fbe7ede0 100644
                      }
                  }
              }
-@@ -1954,6 +2274,165 @@ class ReadBookActivity : BaseReadBookActivity(),
+@@ -1954,6 +2274,160 @@ class ReadBookActivity : BaseReadBookActivity(),
          }
      }
  
@@ -536,7 +538,7 @@ index db62d85de..3fbe7ede0 100644
 +                    )
 +                )
 +            ) {
-+                updateReadAloudParagraphSpan(textChapter, paragraph)
++                updateReadAloudParagraphSpan(paragraph)
 +                binding.readView.curPage.invalidateContentView()
 +            }
 +            updateReadAloudVisualCenterIndicator()
@@ -544,7 +546,7 @@ index db62d85de..3fbe7ede0 100644
 +        }
 +
 +        val initialEffectiveOffset = readAloudNextChapterInitialOffset(textChapter, pageIndex, paragraph)
-+        updateReadAloudParagraphSpan(textChapter, paragraph)
++        updateReadAloudParagraphSpan(paragraph)
 +        val followSucceeded = binding.readView.followReadAloudParagraph(
 +            paragraph = paragraph,
 +            initialEffectiveOffset = initialEffectiveOffset
@@ -567,7 +569,7 @@ index db62d85de..3fbe7ede0 100644
 +            }
 +            ReadAloudVisualPositioner.FollowFallback.RefreshCurrentPage -> {
 +                upContent(resetPageOffset = false) {
-+                    updateReadAloudParagraphSpan(textChapter, paragraph)
++                    updateReadAloudParagraphSpan(paragraph)
 +                    if (!binding.readView.followReadAloudParagraph(
 +                            paragraph = paragraph,
 +                            initialEffectiveOffset = initialEffectiveOffset
@@ -658,23 +660,18 @@ index db62d85de..3fbe7ede0 100644
 +            ?: textChapter.paragraphs.lastOrNull()
 +    }
 +
-+    private fun clearReadAloudParagraphSpan(textChapter: TextChapter) {
-+        ReadAloudParagraphHighlighter.clear(readAloudHighlightedPageIndices) { index ->
-+            textChapter.getPage(index)
-+        }
-+        readAloudHighlightedPageIndices = emptySet()
++    private fun clearReadAloudParagraphSpan() {
++        ReadAloudParagraphHighlighter.clear(readAloudHighlightedPages)
++        readAloudHighlightedPages = emptySet()
 +    }
 +
 +    private fun updateReadAloudParagraphSpan(
-+        textChapter: TextChapter,
 +        paragraph: TextParagraph
 +    ) {
-+        readAloudHighlightedPageIndices = ReadAloudParagraphHighlighter.update(
++        readAloudHighlightedPages = ReadAloudParagraphHighlighter.update(
 +            paragraph = paragraph,
-+            highlightedPageIndices = readAloudHighlightedPageIndices
-+        ) { index ->
-+            textChapter.getPage(index)
-+        }
++            highlightedPages = readAloudHighlightedPages
++        )
 +    }
 +
      private fun upScreenTimeOut() {
@@ -1358,10 +1355,10 @@ index b3901e4c9..f9f4dd591 100644
 +}
 diff --git a/app/src/main/java/io/legado/app/ui/book/read/page/ReadAloudParagraphHighlighter.kt b/app/src/main/java/io/legado/app/ui/book/read/page/ReadAloudParagraphHighlighter.kt
 new file mode 100644
-index 000000000..9f65fd8f1
+index 000000000..a8e2e07d7
 --- /dev/null
 +++ b/app/src/main/java/io/legado/app/ui/book/read/page/ReadAloudParagraphHighlighter.kt
-@@ -0,0 +1,27 @@
+@@ -0,0 +1,49 @@
 +package io.legado.app.ui.book.read.page
 +
 +import io.legado.app.ui.book.read.page.entities.TextPage
@@ -1369,24 +1366,46 @@ index 000000000..9f65fd8f1
 +
 +internal object ReadAloudParagraphHighlighter {
 +
++    class HighlightedPage private constructor(
++        private val chapterIndex: Int,
++        private val pageIndex: Int,
++        private val page: TextPage
++    ) {
++
++        constructor(page: TextPage) : this(page.chapterIndex, page.index, page)
++
++        fun clear() {
++            page.removePageAloudSpan()
++        }
++
++        override fun equals(other: Any?): Boolean {
++            return other is HighlightedPage &&
++                    chapterIndex == other.chapterIndex &&
++                    pageIndex == other.pageIndex
++        }
++
++        override fun hashCode(): Int {
++            var result = chapterIndex
++            result = 31 * result + pageIndex
++            return result
++        }
++    }
++
 +    fun update(
 +        paragraph: TextParagraph,
-+        highlightedPageIndices: Set<Int>,
-+        getPage: (Int) -> TextPage?
-+    ): Set<Int> {
-+        val pageIndices = paragraph.textLines.map { it.textPage.index }.toSet()
-+        clear(highlightedPageIndices + pageIndices, getPage)
++        highlightedPages: Set<HighlightedPage>
++    ): Set<HighlightedPage> {
++        val pageKeys = paragraph.textLines.map { HighlightedPage(it.textPage) }.toSet()
++        clear(highlightedPages)
++        clear(pageKeys)
 +        paragraph.textLines.forEach { it.isReadAloud = true }
-+        return pageIndices
++        return pageKeys
 +    }
 +
 +    fun clear(
-+        highlightedPageIndices: Set<Int>,
-+        getPage: (Int) -> TextPage?
++        highlightedPages: Set<HighlightedPage>
 +    ) {
-+        highlightedPageIndices.forEach { index ->
-+            getPage(index)?.removePageAloudSpan()
-+        }
++        highlightedPages.forEach { it.clear() }
 +    }
 +}
 diff --git a/app/src/main/java/io/legado/app/ui/book/read/page/ReadAloudVisualPositioner.kt b/app/src/main/java/io/legado/app/ui/book/read/page/ReadAloudVisualPositioner.kt
@@ -1874,10 +1893,10 @@ index e261bcc02..525a515ef 100644
                  if (pageIndex < 0 || currentChapter?.isLastIndexCurrent(pageIndex) == true) {
 diff --git a/app/src/test/java/io/legado/app/ui/book/read/page/ReadAloudParagraphHighlighterTest.kt b/app/src/test/java/io/legado/app/ui/book/read/page/ReadAloudParagraphHighlighterTest.kt
 new file mode 100644
-index 000000000..47e8155d0
+index 000000000..dd48038cf
 --- /dev/null
 +++ b/app/src/test/java/io/legado/app/ui/book/read/page/ReadAloudParagraphHighlighterTest.kt
-@@ -0,0 +1,76 @@
+@@ -0,0 +1,95 @@
 +package io.legado.app.ui.book.read.page
 +
 +import android.app.Application
@@ -1911,10 +1930,10 @@ index 000000000..47e8155d0
 +
 +        val highlightedPages = ReadAloudParagraphHighlighter.update(
 +            paragraph = TextParagraph(1, arrayListOf(firstLine, secondLine)),
-+            highlightedPageIndices = emptySet()
-+        ) { index -> listOf(firstPage, secondPage).getOrNull(index) }
++            highlightedPages = emptySet()
++        )
 +
-+        assertEquals(setOf(0, 1), highlightedPages)
++        assertEquals(2, highlightedPages.size)
 +        assertTrue(firstLine.isReadAloud)
 +        assertTrue(secondLine.isReadAloud)
 +    }
@@ -1931,16 +1950,35 @@ index 000000000..47e8155d0
 +
 +        val highlightedPages = ReadAloudParagraphHighlighter.update(
 +            paragraph = TextParagraph(2, arrayListOf(newLine)),
-+            highlightedPageIndices = setOf(0)
-+        ) { index -> listOf(oldPage, newPage).getOrNull(index) }
++            highlightedPages = setOf(ReadAloudParagraphHighlighter.HighlightedPage(oldPage))
++        )
 +
-+        assertEquals(setOf(1), highlightedPages)
++        assertEquals(1, highlightedPages.size)
 +        assertFalse(oldLine.isReadAloud)
 +        assertTrue(newLine.isReadAloud)
 +    }
 +
-+    private fun textPage(index: Int): TextPage {
-+        return TextPage(index = index, text = "", title = "")
++    @Test
++    fun clearsPreviousChapterWhenNewParagraphUsesSamePageIndex() {
++        val oldPage = textPage(chapterIndex = 212, index = 0)
++        val newPage = textPage(chapterIndex = 213, index = 0)
++        val oldLine = textLine("old")
++        val newLine = textLine("new")
++        oldPage.addLine(oldLine)
++        newPage.addLine(newLine)
++        oldLine.isReadAloud = true
++
++        ReadAloudParagraphHighlighter.update(
++            paragraph = TextParagraph(2, arrayListOf(newLine)),
++            highlightedPages = setOf(ReadAloudParagraphHighlighter.HighlightedPage(oldPage))
++        )
++
++        assertFalse(oldLine.isReadAloud)
++        assertTrue(newLine.isReadAloud)
++    }
++
++    private fun textPage(index: Int, chapterIndex: Int = 0): TextPage {
++        return TextPage(index = index, chapterIndex = chapterIndex, text = "", title = "")
 +    }
 +
 +    private fun textLine(text: String): TextLine {

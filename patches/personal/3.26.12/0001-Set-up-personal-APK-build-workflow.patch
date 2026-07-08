@@ -167,14 +167,14 @@ index 1343b12df..0a80cb403 100644
      implementation(libs.kotlin.stdlib)
      implementation(libs.kotlinx.collections.immutable)
 diff --git a/app/version.properties b/app/version.properties
-index d0bcfc9a8..a38fdfa59 100644
+index d0bcfc9a8..6d01ab4de 100644
 --- a/app/version.properties
 +++ b/app/version.properties
 @@ -1,5 +1,6 @@
  VERSION_MAJOR=3
  VERSION_MINOR=26
  VERSION_PATCH=12
-+VERSION_PERSONAL=1
++VERSION_PERSONAL=2
  VERSION_SUFFIX=0
 -# 1 = Pre, 0 = Release
 \ No newline at end of file

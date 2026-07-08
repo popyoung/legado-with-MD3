@@ -31,10 +31,10 @@ class ReadAloudParagraphHighlighterTest {
 
         val highlightedPages = ReadAloudParagraphHighlighter.update(
             paragraph = TextParagraph(1, arrayListOf(firstLine, secondLine)),
-            highlightedPageIndices = emptySet()
-        ) { index -> listOf(firstPage, secondPage).getOrNull(index) }
+            highlightedPages = emptySet()
+        )
 
-        assertEquals(setOf(0, 1), highlightedPages)
+        assertEquals(2, highlightedPages.size)
         assertTrue(firstLine.isReadAloud)
         assertTrue(secondLine.isReadAloud)
     }
@@ -51,16 +51,35 @@ class ReadAloudParagraphHighlighterTest {
 
         val highlightedPages = ReadAloudParagraphHighlighter.update(
             paragraph = TextParagraph(2, arrayListOf(newLine)),
-            highlightedPageIndices = setOf(0)
-        ) { index -> listOf(oldPage, newPage).getOrNull(index) }
+            highlightedPages = setOf(ReadAloudParagraphHighlighter.HighlightedPage(oldPage))
+        )
 
-        assertEquals(setOf(1), highlightedPages)
+        assertEquals(1, highlightedPages.size)
         assertFalse(oldLine.isReadAloud)
         assertTrue(newLine.isReadAloud)
     }
 
-    private fun textPage(index: Int): TextPage {
-        return TextPage(index = index, text = "", title = "")
+    @Test
+    fun clearsPreviousChapterWhenNewParagraphUsesSamePageIndex() {
+        val oldPage = textPage(chapterIndex = 212, index = 0)
+        val newPage = textPage(chapterIndex = 213, index = 0)
+        val oldLine = textLine("old")
+        val newLine = textLine("new")
+        oldPage.addLine(oldLine)
+        newPage.addLine(newLine)
+        oldLine.isReadAloud = true
+
+        ReadAloudParagraphHighlighter.update(
+            paragraph = TextParagraph(2, arrayListOf(newLine)),
+            highlightedPages = setOf(ReadAloudParagraphHighlighter.HighlightedPage(oldPage))
+        )
+
+        assertFalse(oldLine.isReadAloud)
+        assertTrue(newLine.isReadAloud)
+    }
+
+    private fun textPage(index: Int, chapterIndex: Int = 0): TextPage {
+        return TextPage(index = index, chapterIndex = chapterIndex, text = "", title = "")
     }
 
     private fun textLine(text: String): TextLine {

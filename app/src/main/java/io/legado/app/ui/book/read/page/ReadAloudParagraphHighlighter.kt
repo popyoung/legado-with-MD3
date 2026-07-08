@@ -5,23 +5,45 @@ import io.legado.app.ui.book.read.page.entities.TextParagraph
 
 internal object ReadAloudParagraphHighlighter {
 
+    class HighlightedPage private constructor(
+        private val chapterIndex: Int,
+        private val pageIndex: Int,
+        private val page: TextPage
+    ) {
+
+        constructor(page: TextPage) : this(page.chapterIndex, page.index, page)
+
+        fun clear() {
+            page.removePageAloudSpan()
+        }
+
+        override fun equals(other: Any?): Boolean {
+            return other is HighlightedPage &&
+                    chapterIndex == other.chapterIndex &&
+                    pageIndex == other.pageIndex
+        }
+
+        override fun hashCode(): Int {
+            var result = chapterIndex
+            result = 31 * result + pageIndex
+            return result
+        }
+    }
+
     fun update(
         paragraph: TextParagraph,
-        highlightedPageIndices: Set<Int>,
-        getPage: (Int) -> TextPage?
-    ): Set<Int> {
-        val pageIndices = paragraph.textLines.map { it.textPage.index }.toSet()
-        clear(highlightedPageIndices + pageIndices, getPage)
+        highlightedPages: Set<HighlightedPage>
+    ): Set<HighlightedPage> {
+        val pageKeys = paragraph.textLines.map { HighlightedPage(it.textPage) }.toSet()
+        clear(highlightedPages)
+        clear(pageKeys)
         paragraph.textLines.forEach { it.isReadAloud = true }
-        return pageIndices
+        return pageKeys
     }
 
     fun clear(
-        highlightedPageIndices: Set<Int>,
-        getPage: (Int) -> TextPage?
+        highlightedPages: Set<HighlightedPage>
     ) {
-        highlightedPageIndices.forEach { index ->
-            getPage(index)?.removePageAloudSpan()
-        }
+        highlightedPages.forEach { it.clear() }
     }
 }
