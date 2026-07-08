@@ -181,6 +181,13 @@ internal object ReadAloudVisualPositioner {
         return readAloudParagraphVisible
     }
 
+    fun shouldFollowDuringRestore(
+        readAloudVisualFollowPaused: Boolean,
+        explicitFollowRestore: Boolean
+    ): Boolean {
+        return explicitFollowRestore || !readAloudVisualFollowPaused
+    }
+
     fun clearFollowState(state: FollowState): FollowState {
         return state.copy(readAloudOffset = 0, active = false)
     }

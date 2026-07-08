@@ -444,6 +444,36 @@ class ReadAloudVisualPositionerTest {
     }
 
     @Test
+    fun pausedVisualFollowBlocksImplicitRestoreFollow() {
+        val shouldFollow = ReadAloudVisualPositioner.shouldFollowDuringRestore(
+            readAloudVisualFollowPaused = true,
+            explicitFollowRestore = false
+        )
+
+        assertFalse(shouldFollow)
+    }
+
+    @Test
+    fun explicitRestoreCanResumePausedVisualFollow() {
+        val shouldFollow = ReadAloudVisualPositioner.shouldFollowDuringRestore(
+            readAloudVisualFollowPaused = true,
+            explicitFollowRestore = true
+        )
+
+        assertTrue(shouldFollow)
+    }
+
+    @Test
+    fun unpausedVisualFollowAllowsImplicitRestoreFollow() {
+        val shouldFollow = ReadAloudVisualPositioner.shouldFollowDuringRestore(
+            readAloudVisualFollowPaused = false,
+            explicitFollowRestore = false
+        )
+
+        assertTrue(shouldFollow)
+    }
+
+    @Test
     fun clearFollowStateKeepsScrollOffset() {
         val state = ReadAloudVisualPositioner.clearFollowState(
             ReadAloudVisualPositioner.FollowState(

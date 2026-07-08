@@ -295,6 +295,11 @@ class ReadBookActivity : BaseReadBookActivity(),
         }
     }
 
+    private enum class ReadAloudVisualRestoreReason(val explicitFollowRestore: Boolean) {
+        BackNavigation(true),
+        ResumePlayback(true)
+    }
+
     //恢复跳转前进度对话框的交互结果
     private var confirmRestoreProcess: Boolean? = null
     private val networkChangedListener by lazy {
@@ -324,7 +329,10 @@ class ReadBookActivity : BaseReadBookActivity(),
                 return@addCallback
             }
             if (BaseReadAloudService.isPlay()) {
-                if (readAloudPositionVisibleOnScreen() || !restoreReadAloudVisualPosition()) {
+                if (readAloudPositionVisibleOnScreen() || !restoreReadAloudVisualPosition(
+                        ReadAloudVisualRestoreReason.BackNavigation
+                    )
+                ) {
                     ReadAloud.pause(this@ReadBookActivity)
                     toastOnUi(R.string.read_aloud_pause)
                 }
@@ -1208,6 +1216,7 @@ class ReadBookActivity : BaseReadBookActivity(),
         pageChanged = true
         if (BaseReadAloudService.isPlay() && !fromReadAloud && !restoringReadAloudVisualPosition) {
             readAloudVisualFollowPaused = true
+            cancelReadAloudVisualRestore()
             binding.readView.curPage.clearReadAloudVisualFollow()
         }
         if (ReadAloudPageChangePolicy.shouldRefreshReadViewOnPageChanged(fromReadAloud)) {
@@ -1527,7 +1536,7 @@ class ReadBookActivity : BaseReadBookActivity(),
                     )
                 ) {
                     pageChanged = false
-                    restoreReadAloudVisualPosition()
+                    restoreReadAloudVisualPosition(ReadAloudVisualRestoreReason.ResumePlayback)
                 }
                 ReadAloud.resume(this)
             }
@@ -1598,13 +1607,26 @@ class ReadBookActivity : BaseReadBookActivity(),
         )
     }
 
-    private fun restoreReadAloudVisualPosition(): Boolean {
+    private fun restoreReadAloudVisualPosition(
+        reason: ReadAloudVisualRestoreReason
+    ): Boolean {
         val chapterIndex = BaseReadAloudService.readAloudChapterIndex
         if (chapterIndex !in 0 until ReadBook.simulatedChapterSize) return false
         val chapterStart = BaseReadAloudService.readAloudChapterStart.coerceAtLeast(0)
         val restoreSerial = ++readAloudRestoreSerial
         readAloudRestoreLoadingSerial = restoreSerial
-        readAloudVisualFollowPaused = false
+        val wasFollowPaused = readAloudVisualFollowPaused
+        val followDuringRestore = ReadAloudVisualPositioner.shouldFollowDuringRestore(
+            readAloudVisualFollowPaused = wasFollowPaused,
+            explicitFollowRestore = reason.explicitFollowRestore
+        )
+        if (reason.explicitFollowRestore) {
+            readAloudVisualFollowPaused = false
+        }
+        ReadAloudVisualTrace.record(
+            event = "restoreVisualStart",
+            detail = "reason=${reason.name} follow=$followDuringRestore wasPaused=$wasFollowPaused read=$chapterIndex/$chapterStart dur=${ReadBook.durChapterIndex}/${ReadBook.durPageIndex}/${ReadBook.durChapterPos} visual=[${binding.readView.readAloudVisualDebugState()}]"
+        )
         if (ReadBook.durChapterIndex == chapterIndex) {
             restoringReadAloudVisualPosition = false
             val textChapter = ReadBook.curTextChapter ?: return false
@@ -1613,7 +1635,9 @@ class ReadBookActivity : BaseReadBookActivity(),
                 textChapter = textChapter,
                 chapterStart = chapterStart,
                 restoreSerial = restoreSerial,
-                chapterIndex = chapterIndex
+                chapterIndex = chapterIndex,
+                restoreReason = reason,
+                followDuringRestore = followDuringRestore
             )
             return true
         }
@@ -1628,7 +1652,9 @@ class ReadBookActivity : BaseReadBookActivity(),
                     textChapter = textChapter,
                     chapterStart = chapterStart,
                     restoreSerial = restoreSerial,
-                    chapterIndex = chapterIndex
+                    chapterIndex = chapterIndex,
+                    restoreReason = reason,
+                    followDuringRestore = followDuringRestore
                 )
             }
             clearReadAloudRestoring(restoreSerial)
@@ -1645,6 +1671,12 @@ class ReadBookActivity : BaseReadBookActivity(),
         }
     }
 
+    private fun cancelReadAloudVisualRestore() {
+        readAloudRestoreSerial++
+        readAloudRestoreLoadingSerial = 0
+        restoringReadAloudVisualPosition = false
+    }
+
     private fun isCurrentReadAloudRestore(
         restoreSerial: Int,
         chapterIndex: Int,
@@ -1659,9 +1691,17 @@ class ReadBookActivity : BaseReadBookActivity(),
         textChapter: TextChapter,
         chapterStart: Int,
         restoreSerial: Int,
-        chapterIndex: Int
+        chapterIndex: Int,
+        restoreReason: ReadAloudVisualRestoreReason,
+        followDuringRestore: Boolean
     ) {
-        if (!isCurrentReadAloudRestore(restoreSerial, chapterIndex, chapterStart)) return
+        if (!isCurrentReadAloudRestore(restoreSerial, chapterIndex, chapterStart)) {
+            ReadAloudVisualTrace.record(
+                event = "restoreVisualSkip",
+                detail = "reason=stale source=${restoreReason.name} serial=$restoreSerial currentSerial=$readAloudRestoreSerial read=${BaseReadAloudService.readAloudChapterIndex}/${BaseReadAloudService.readAloudChapterStart} target=$chapterIndex/$chapterStart visual=[${binding.readView.readAloudVisualDebugState()}]"
+            )
+            return
+        }
         val paragraph = findReadAloudParagraph(textChapter, chapterStart)
         val pageIndex = paragraph?.firstLine?.textPage?.index
             ?: textChapter.getPageIndexByCharIndex(chapterStart)
@@ -1669,24 +1709,53 @@ class ReadBookActivity : BaseReadBookActivity(),
         val readAloudParagraphVisible = paragraph?.let {
             readAloudParagraphVisibleOnScreen(textChapter, it)
         } == true
+        if (!followDuringRestore) {
+            if (paragraph != null && readAloudParagraphVisible) {
+                updateReadAloudParagraphSpan(textChapter, paragraph)
+                binding.readView.curPage.invalidateContentView()
+            }
+            updateReadAloudVisualCenterIndicator()
+            ReadAloudVisualTrace.record(
+                event = "restoreVisualResult",
+                detail = "reason=${restoreReason.name} action=keepVisual follow=false visible=$readAloudParagraphVisible page=$pageIndex visual=[${binding.readView.readAloudVisualDebugState()}]"
+            )
+            return
+        }
         if (paragraph != null && ReadAloudVisualPositioner.shouldRestoreWithoutPageJump(
                 readAloudParagraphVisible = readAloudParagraphVisible
             )
         ) {
             upContent(resetPageOffset = false) {
                 if (!isCurrentReadAloudRestore(restoreSerial, chapterIndex, chapterStart)) {
+                    ReadAloudVisualTrace.record(
+                        event = "restoreVisualSkip",
+                        detail = "reason=staleInUpContent source=${restoreReason.name} serial=$restoreSerial currentSerial=$readAloudRestoreSerial read=${BaseReadAloudService.readAloudChapterIndex}/${BaseReadAloudService.readAloudChapterStart} target=$chapterIndex/$chapterStart visual=[${binding.readView.readAloudVisualDebugState()}]"
+                    )
                     return@upContent
                 }
                 updateReadAloudParagraphSpan(textChapter, paragraph)
-                if (!binding.readView.followReadAloudParagraph(paragraph)) {
+                val followed = binding.readView.followReadAloudParagraph(paragraph)
+                if (!followed) {
                     jumpToReadAloudPage(
                         textChapter = textChapter,
                         pageIndex = pageIndex,
                         paragraph = paragraph,
-                        initialEffectiveOffset = null
-                    ) {
-                        isCurrentReadAloudRestore(restoreSerial, chapterIndex, chapterStart)
-                    }
+                        initialEffectiveOffset = null,
+                        afterJump = {
+                            ReadAloudVisualTrace.record(
+                                event = "restoreVisualResult",
+                                detail = "reason=${restoreReason.name} action=jumpVisible follow=true page=$pageIndex visual=[${binding.readView.readAloudVisualDebugState()}]"
+                            )
+                        },
+                        isCurrent = {
+                            isCurrentReadAloudRestore(restoreSerial, chapterIndex, chapterStart)
+                        }
+                    )
+                } else {
+                    ReadAloudVisualTrace.record(
+                        event = "restoreVisualResult",
+                        detail = "reason=${restoreReason.name} action=followVisible follow=true page=$pageIndex visual=[${binding.readView.readAloudVisualDebugState()}]"
+                    )
                 }
             }
             return
@@ -1694,9 +1763,21 @@ class ReadBookActivity : BaseReadBookActivity(),
         val initialEffectiveOffset = paragraph?.let {
             readAloudNextChapterInitialOffset(textChapter, pageIndex, it)
         }
-        jumpToReadAloudPage(textChapter, pageIndex, paragraph, initialEffectiveOffset) {
-            isCurrentReadAloudRestore(restoreSerial, chapterIndex, chapterStart)
-        }
+        jumpToReadAloudPage(
+            textChapter = textChapter,
+            pageIndex = pageIndex,
+            paragraph = paragraph,
+            initialEffectiveOffset = initialEffectiveOffset,
+            afterJump = {
+                ReadAloudVisualTrace.record(
+                    event = "restoreVisualResult",
+                    detail = "reason=${restoreReason.name} action=jump follow=true page=$pageIndex initial=$initialEffectiveOffset visual=[${binding.readView.readAloudVisualDebugState()}]"
+                )
+            },
+            isCurrent = {
+                isCurrentReadAloudRestore(restoreSerial, chapterIndex, chapterStart)
+            }
+        )
     }
 
     private fun jumpToReadAloudPage(
@@ -1760,6 +1841,7 @@ class ReadBookActivity : BaseReadBookActivity(),
     override fun onReadAloudVisualFollowInterrupted() {
         if (BaseReadAloudService.isPlay()) {
             readAloudVisualFollowPaused = true
+            cancelReadAloudVisualRestore()
         }
         updateReadAloudVisualCenterIndicator(forceTrace = false)
     }
