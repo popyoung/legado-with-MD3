@@ -1,6 +1,10 @@
 name: Build APK
 
 on:
+  push:
+    branches:
+      - "personal/**"
+      - "custom/**"
   pull_request:
     branches:
       - "personal/**"

@@ -4,14 +4,14 @@ Date: Thu, 9 Jul 2026 00:00:00 +0800
 Subject: [PATCH 1/5] Set up personal APK build workflow and versioning
 
 ---
- .github/workflows/ci.yml        |  81 +++++++++++++++++++++
+ .github/workflows/ci.yml        |  85 ++++++++++++++++++++++
  AGENTS.md                       |  10 +++
  CLAUDE.md                       |  12 ++++
  app/build.gradle.kts            |  20 +++++-
  app/version.properties          |   3 +-
- docs/personal-patch-workflow.md | 120 ++++++++++++++++++++++++++++++++
+ docs/personal-patch-workflow.md | 122 +++++++++++++++++++++++++++++++++
  gradle/libs.versions.toml       |   2 +
- 7 files changed, 244 insertions(+), 4 deletions(-)
+ 7 files changed, 250 insertions(+), 4 deletions(-)
  create mode 100644 .github/workflows/ci.yml
  create mode 100644 AGENTS.md
  create mode 100644 docs/personal-patch-workflow.md
@@ -21,10 +21,14 @@ new file mode 100644
 index 000000000..2633026c8
 --- /dev/null
 +++ b/.github/workflows/ci.yml
-@@ -0,0 +1,81 @@
+@@ -0,0 +1,85 @@
 +name: Build APK
 +
 +on:
++  push:
++    branches:
++      - "personal/**"
++      - "custom/**"
 +  pull_request:
 +    branches:
 +      - "personal/**"
@@ -213,7 +217,7 @@ new file mode 100644
 index 000000000..c1356adf7
 --- /dev/null
 +++ b/docs/personal-patch-workflow.md
-@@ -0,0 +1,120 @@
+@@ -0,0 +1,122 @@
 +# Personal Patch Workflow
 +
 +This fork follows upstream closely while keeping a small personal patch stack.
@@ -227,6 +231,7 @@ index 000000000..c1356adf7
 +- Long-lived personal work against upstream main may use `personal/main`.
 +- Local Android toolchains are not used for this project. Do not run local JDK, SDK, NDK, Gradle, or `gradlew` checks unless explicitly requested.
 +- Verification and APK packaging use the single GitHub Actions workflow in `.github/workflows/ci.yml`.
++  Pushes to personal/custom branches and manual dispatch both run this same workflow.
 +- The workflow has one path only: compile, test, build `arm64-v8a` noR8 APK, upload artifact. Failures naturally stop later steps.
 +
 +## Creating a New Release Base
@@ -315,7 +320,8 @@ index 000000000..c1356adf7
 +
 +## Verification
 +
-+Do not verify with local Gradle. Trigger the single GitHub Actions workflow:
++Do not verify with local Gradle. Pushes to personal/custom branches trigger the single
++GitHub Actions workflow automatically. Manual dispatch is also available:
 +
 +```bash
 +gh workflow run ci.yml --ref personal/3.28-tts

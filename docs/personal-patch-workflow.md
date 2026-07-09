@@ -11,6 +11,7 @@ Use this workflow for every upstream main update or new formal release base.
 - Long-lived personal work against upstream main may use `personal/main`.
 - Local Android toolchains are not used for this project. Do not run local JDK, SDK, NDK, Gradle, or `gradlew` checks unless explicitly requested.
 - Verification and APK packaging use the single GitHub Actions workflow in `.github/workflows/ci.yml`.
+  Pushes to personal/custom branches and manual dispatch both run this same workflow.
 - The workflow has one path only: compile, test, build `arm64-v8a` noR8 APK, upload artifact. Failures naturally stop later steps.
 
 ## Creating a New Release Base
@@ -99,7 +100,8 @@ After resolving conflicts, inspect the resulting diff by feature area before pus
 
 ## Verification
 
-Do not verify with local Gradle. Trigger the single GitHub Actions workflow:
+Do not verify with local Gradle. Pushes to personal/custom branches trigger the single
+GitHub Actions workflow automatically. Manual dispatch is also available:
 
 ```bash
 gh workflow run ci.yml --ref personal/3.28-tts
