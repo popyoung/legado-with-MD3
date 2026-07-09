@@ -1,12 +1,13 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From 60f0c2dfee82fcd808c44b0ed92264b10b831650 Mon Sep 17 00:00:00 2001
 From: popyoung <popyoung@users.noreply.github.com>
 Date: Wed, 8 Jul 2026 00:00:00 +0800
 Subject: [PATCH 5/5] Add TTS visual diagnostics export
 
 ---
- .../app/ui/book/read/page/ReadAloudVisualTrace.kt  | 126 +++++++++++++++++++++
+ .../ui/book/read/page/ReadAloudVisualTrace.kt | 126 ++++++++++++++++++
  1 file changed, 126 insertions(+)
----
+ create mode 100644 app/src/main/java/io/legado/app/ui/book/read/page/ReadAloudVisualTrace.kt
+
 diff --git a/app/src/main/java/io/legado/app/ui/book/read/page/ReadAloudVisualTrace.kt b/app/src/main/java/io/legado/app/ui/book/read/page/ReadAloudVisualTrace.kt
 new file mode 100644
 index 000000000..bb243170e

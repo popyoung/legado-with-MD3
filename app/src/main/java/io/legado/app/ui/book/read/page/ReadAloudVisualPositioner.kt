@@ -182,9 +182,12 @@ internal object ReadAloudVisualPositioner {
     fun shouldRestoreVisualFollowOnForeground(
         readAloudPlaying: Boolean,
         readAloudVisualFollowPaused: Boolean,
-        readAloudPositionVisible: Boolean
+        readAloudPositionVisible: Boolean,
+        playbackContinuedInBackground: Boolean = false
     ): Boolean {
-        return readAloudPlaying && readAloudVisualFollowPaused && !readAloudPositionVisible
+        if (!readAloudPlaying) return false
+        if (playbackContinuedInBackground) return true
+        return readAloudVisualFollowPaused && !readAloudPositionVisible
     }
 
     fun followFallback(

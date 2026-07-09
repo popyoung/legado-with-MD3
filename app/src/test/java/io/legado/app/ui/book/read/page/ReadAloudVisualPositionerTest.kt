@@ -521,10 +521,35 @@ class ReadAloudVisualPositionerTest {
         val shouldRestore = ReadAloudVisualPositioner.shouldRestoreVisualFollowOnForeground(
             readAloudPlaying = true,
             readAloudVisualFollowPaused = true,
-            readAloudPositionVisible = true
+            readAloudPositionVisible = true,
+            playbackContinuedInBackground = false
         )
 
         assertFalse(shouldRestore)
+    }
+
+    @Test
+    fun foregroundRestoreResumesPausedVisualFollowAfterBackgroundPlaybackEvenIfPositionLooksVisible() {
+        val shouldRestore = ReadAloudVisualPositioner.shouldRestoreVisualFollowOnForeground(
+            readAloudPlaying = true,
+            readAloudVisualFollowPaused = true,
+            readAloudPositionVisible = true,
+            playbackContinuedInBackground = true
+        )
+
+        assertTrue(shouldRestore)
+    }
+
+    @Test
+    fun foregroundRestoreResumesAfterBackgroundPlaybackEvenWhenVisualFollowWasNotPaused() {
+        val shouldRestore = ReadAloudVisualPositioner.shouldRestoreVisualFollowOnForeground(
+            readAloudPlaying = true,
+            readAloudVisualFollowPaused = false,
+            readAloudPositionVisible = true,
+            playbackContinuedInBackground = true
+        )
+
+        assertTrue(shouldRestore)
     }
 
     @Test
@@ -532,7 +557,8 @@ class ReadAloudVisualPositionerTest {
         val shouldRestore = ReadAloudVisualPositioner.shouldRestoreVisualFollowOnForeground(
             readAloudPlaying = false,
             readAloudVisualFollowPaused = true,
-            readAloudPositionVisible = false
+            readAloudPositionVisible = false,
+            playbackContinuedInBackground = true
         )
 
         assertFalse(shouldRestore)

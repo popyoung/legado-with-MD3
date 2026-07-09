@@ -1,21 +1,25 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From 252425ad39f9cd25094960207e9130cbcdfd2955 Mon Sep 17 00:00:00 2001
 From: popyoung <popyoung@users.noreply.github.com>
 Date: Wed, 8 Jul 2026 00:00:00 +0800
 Subject: [PATCH 2/5] Add TTS playback state and progress helpers
 
 ---
- .../main/java/io/legado/app/constant/EventBus.kt   |   1 +
- .../java/io/legado/app/help/coroutine/Coroutine.kt |   4 +
- .../legado/app/model/ReadAloudPageChangePolicy.kt  |  26 ++++
- app/src/main/java/io/legado/app/model/ReadBook.kt  | 163 +++++++++++++++++---
- .../io/legado/app/service/BaseReadAloudService.kt  | 166 ++++++++++++++++++---
- .../io/legado/app/service/HttpReadAloudService.kt  |   1 -
- .../io/legado/app/service/ReadAloudProgress.kt     |  27 ++++
- .../io/legado/app/service/TTSReadAloudService.kt   |  27 +++-
- .../app/model/ReadAloudPageChangePolicyTest.kt     |  68 +++++++++
- .../io/legado/app/service/ReadAloudProgressTest.kt |  37 +++++
+ .../java/io/legado/app/constant/EventBus.kt   |   1 +
+ .../io/legado/app/help/coroutine/Coroutine.kt |   4 +
+ .../app/model/ReadAloudPageChangePolicy.kt    |  26 +++
+ .../main/java/io/legado/app/model/ReadBook.kt | 163 ++++++++++++++---
+ .../app/service/BaseReadAloudService.kt       | 166 ++++++++++++++++--
+ .../app/service/HttpReadAloudService.kt       |   1 -
+ .../legado/app/service/ReadAloudProgress.kt   |  27 +++
+ .../legado/app/service/TTSReadAloudService.kt |  27 ++-
+ .../model/ReadAloudPageChangePolicyTest.kt    |  68 +++++++
+ .../app/service/ReadAloudProgressTest.kt      |  37 ++++
  10 files changed, 476 insertions(+), 44 deletions(-)
----
+ create mode 100644 app/src/main/java/io/legado/app/model/ReadAloudPageChangePolicy.kt
+ create mode 100644 app/src/main/java/io/legado/app/service/ReadAloudProgress.kt
+ create mode 100644 app/src/test/java/io/legado/app/model/ReadAloudPageChangePolicyTest.kt
+ create mode 100644 app/src/test/java/io/legado/app/service/ReadAloudProgressTest.kt
+
 diff --git a/app/src/main/java/io/legado/app/constant/EventBus.kt b/app/src/main/java/io/legado/app/constant/EventBus.kt
 index 52c43cee8..3b0487d06 100644
 --- a/app/src/main/java/io/legado/app/constant/EventBus.kt

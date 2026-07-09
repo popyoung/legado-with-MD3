@@ -1,24 +1,28 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From a86ad151231eb2872fc8eb88113396cd50a10213 Mon Sep 17 00:00:00 2001
 From: popyoung <popyoung@users.noreply.github.com>
 Date: Thu, 9 Jul 2026 00:00:00 +0800
 Subject: [PATCH 3/5] Refine TTS visual follow and highlighting
 
 ---
- .../io/legado/app/ui/book/read/ReadBookActivity.kt | 604 +++++++++++++-
- .../app/ui/book/read/page/ContentTextView.kt       | 502 +++++++++++-
- .../io/legado/app/ui/book/read/page/PageView.kt    |  46 +-
- .../read/page/ReadAloudParagraphHighlighter.kt     |  49 ++
- .../ui/book/read/page/ReadAloudVisualPositioner.kt | 336 ++++++++
- .../io/legado/app/ui/book/read/page/ReadView.kt    |  49 +-
- .../app/ui/book/read/page/entities/TextLine.kt     |  11 +-
- .../app/ui/book/read/page/entities/TextPage.kt     |  15 +-
- .../ui/book/read/page/provider/TextPageFactory.kt  |   3 +
- .../read/page/ReadAloudParagraphHighlighterTest.kt |  95 +++
- .../read/page/ReadAloudVisualPositionerTest.kt     | 891 +++++++++++++++++++++
- 11 files changed, 2530 insertions(+), 71 deletions(-)
----
+ .../app/ui/book/read/ReadBookActivity.kt      | 617 +++++++++++-
+ .../app/ui/book/read/page/ContentTextView.kt  | 502 +++++++++-
+ .../legado/app/ui/book/read/page/PageView.kt  |  46 +-
+ .../page/ReadAloudParagraphHighlighter.kt     |  49 +
+ .../read/page/ReadAloudVisualPositioner.kt    | 339 +++++++
+ .../legado/app/ui/book/read/page/ReadView.kt  |  49 +-
+ .../ui/book/read/page/entities/TextLine.kt    |  11 +-
+ .../ui/book/read/page/entities/TextPage.kt    |  15 +-
+ .../read/page/provider/TextPageFactory.kt     |   3 +
+ .../page/ReadAloudParagraphHighlighterTest.kt |  95 ++
+ .../page/ReadAloudVisualPositionerTest.kt     | 917 ++++++++++++++++++
+ 11 files changed, 2572 insertions(+), 71 deletions(-)
+ create mode 100644 app/src/main/java/io/legado/app/ui/book/read/page/ReadAloudParagraphHighlighter.kt
+ create mode 100644 app/src/main/java/io/legado/app/ui/book/read/page/ReadAloudVisualPositioner.kt
+ create mode 100644 app/src/test/java/io/legado/app/ui/book/read/page/ReadAloudParagraphHighlighterTest.kt
+ create mode 100644 app/src/test/java/io/legado/app/ui/book/read/page/ReadAloudVisualPositionerTest.kt
+
 diff --git a/app/src/main/java/io/legado/app/ui/book/read/ReadBookActivity.kt b/app/src/main/java/io/legado/app/ui/book/read/ReadBookActivity.kt
-index db62d85de..558dc4ea7 100644
+index db62d85de..b287970b8 100644
 --- a/app/src/main/java/io/legado/app/ui/book/read/ReadBookActivity.kt
 +++ b/app/src/main/java/io/legado/app/ui/book/read/ReadBookActivity.kt
 @@ -57,6 +57,7 @@ import io.legado.app.lib.dialogs.SelectItem
@@ -45,11 +49,12 @@ index db62d85de..558dc4ea7 100644
  import io.legado.app.ui.book.read.page.provider.ChapterProvider
  import io.legado.app.ui.book.read.page.provider.LayoutProgressListener
  import io.legado.app.ui.book.read.page.provider.TextChapterLayout
-@@ -273,6 +280,12 @@ class ReadBookActivity : BaseReadBookActivity(),
+@@ -273,6 +280,13 @@ class ReadBookActivity : BaseReadBookActivity(),
      private val prevPageDebounce by lazy { Debounce { keyPage(PageDirection.PREV) } }
      private var bookChanged = false
      private var pageChanged = false
 +    private var readAloudVisualFollowPaused = false
++    private var readAloudPlaybackContinuedInBackground = false
 +    private var restoringReadAloudVisualPosition = false
 +    private var readAloudVisualPreparedForPause = false
 +    private var readAloudRestoreSerial = 0
@@ -58,7 +63,7 @@ index db62d85de..558dc4ea7 100644
      private val handler by lazy { buildMainHandler() }
      private val screenOffRunnable by lazy { Runnable { keepScreenOn(false) } }
      private val executor = ReadBook.executor
-@@ -283,6 +296,11 @@ class ReadBookActivity : BaseReadBookActivity(),
+@@ -283,6 +297,11 @@ class ReadBookActivity : BaseReadBookActivity(),
          }
      }
  
@@ -70,7 +75,7 @@ index db62d85de..558dc4ea7 100644
      //恢复跳转前进度对话框的交互结果
      private var confirmRestoreProcess: Boolean? = null
      private val networkChangedListener by lazy {
-@@ -312,8 +330,14 @@ class ReadBookActivity : BaseReadBookActivity(),
+@@ -312,8 +331,14 @@ class ReadBookActivity : BaseReadBookActivity(),
                  return@addCallback
              }
              if (BaseReadAloudService.isPlay()) {
@@ -87,7 +92,7 @@ index db62d85de..558dc4ea7 100644
                  return@addCallback
              }
              if (isAutoPage) {
-@@ -405,6 +429,7 @@ class ReadBookActivity : BaseReadBookActivity(),
+@@ -405,10 +430,12 @@ class ReadBookActivity : BaseReadBookActivity(),
                  ReadBook.syncProgress({ progress -> sureNewProgress(progress) })
              }
          }
@@ -95,7 +100,12 @@ index db62d85de..558dc4ea7 100644
      }
  
      override fun onPause() {
-@@ -1134,6 +1159,7 @@ class ReadBookActivity : BaseReadBookActivity(),
+         super.onPause()
++        readAloudPlaybackContinuedInBackground = BaseReadAloudService.isPlay()
+         autoPageStop()
+         backupJob?.cancel()
+         ReadBook.saveRead()
+@@ -1134,6 +1161,7 @@ class ReadBookActivity : BaseReadBookActivity(),
              intent.removeExtra("readAloud")
              ReadBook.readAloud()
          }
@@ -103,7 +113,7 @@ index db62d85de..558dc4ea7 100644
          loadStates = true
      }
  
-@@ -1189,9 +1215,19 @@ class ReadBookActivity : BaseReadBookActivity(),
+@@ -1189,9 +1217,19 @@ class ReadBookActivity : BaseReadBookActivity(),
      /**
       * 页面改变
       */
@@ -125,7 +135,7 @@ index db62d85de..558dc4ea7 100644
          handler.post {
              upSeekBarProgress()
          }
-@@ -1473,6 +1509,8 @@ class ReadBookActivity : BaseReadBookActivity(),
+@@ -1473,6 +1511,8 @@ class ReadBookActivity : BaseReadBookActivity(),
          autoPageStop()
          when {
              !BaseReadAloudService.isRun -> {
@@ -134,7 +144,7 @@ index db62d85de..558dc4ea7 100644
                  ReadAloud.upReadAloudClass()
                  val scrollPageAnim = ReadBook.pageAnim() == 3
                  if (scrollPageAnim) {
-@@ -1481,11 +1519,10 @@ class ReadBookActivity : BaseReadBookActivity(),
+@@ -1481,11 +1521,10 @@ class ReadBookActivity : BaseReadBookActivity(),
                          val (index, line) = pos
                          if (ReadBook.durChapterIndex != index) {
                              ReadBook.openChapter(index, line.chapterPosition, false) {
@@ -148,7 +158,7 @@ index db62d85de..558dc4ea7 100644
                          }
                      } else {
                          ReadBook.readAloud()
-@@ -1496,36 +1533,361 @@ class ReadBookActivity : BaseReadBookActivity(),
+@@ -1496,36 +1535,370 @@ class ReadBookActivity : BaseReadBookActivity(),
              }
  
              BaseReadAloudService.pause -> {
@@ -305,18 +315,27 @@ index db62d85de..558dc4ea7 100644
 +    }
 +
 +    private fun restoreReadAloudVisualOnForegroundIfNeeded() {
++        val playbackContinuedInBackground = readAloudPlaybackContinuedInBackground
++        readAloudPlaybackContinuedInBackground = false
 +        val readAloudPositionVisible = readAloudPositionVisibleOnScreen()
-+        if (!ReadAloudVisualPositioner.shouldRestoreVisualFollowOnForeground(
-+                readAloudPlaying = BaseReadAloudService.isPlay(),
-+                readAloudVisualFollowPaused = readAloudVisualFollowPaused,
-+                readAloudPositionVisible = readAloudPositionVisible
++        val shouldRestore = ReadAloudVisualPositioner.shouldRestoreVisualFollowOnForeground(
++            readAloudPlaying = BaseReadAloudService.isPlay(),
++            readAloudVisualFollowPaused = readAloudVisualFollowPaused,
++            readAloudPositionVisible = readAloudPositionVisible,
++            playbackContinuedInBackground = playbackContinuedInBackground
++        )
++        if (BaseReadAloudService.isPlay() && (readAloudVisualFollowPaused || playbackContinuedInBackground)) {
++            ReadAloudVisualTrace.record(
++                event = "foregroundRestoreEval",
++                detail = "shouldRestore=$shouldRestore visible=$readAloudPositionVisible background=$playbackContinuedInBackground read=${BaseReadAloudService.readAloudChapterIndex}/${BaseReadAloudService.readAloudChapterStart} dur=${ReadBook.durChapterIndex}/${ReadBook.durPageIndex}/${ReadBook.durChapterPos} visual=[${binding.readView.readAloudVisualDebugState()}]"
 +            )
-+        ) {
++        }
++        if (!shouldRestore) {
 +            return
 +        }
 +        ReadAloudVisualTrace.record(
 +            event = "foregroundRestore",
-+            detail = "visible=$readAloudPositionVisible read=${BaseReadAloudService.readAloudChapterIndex}/${BaseReadAloudService.readAloudChapterStart} dur=${ReadBook.durChapterIndex}/${ReadBook.durPageIndex}/${ReadBook.durChapterPos} visual=[${binding.readView.readAloudVisualDebugState()}]"
++            detail = "visible=$readAloudPositionVisible background=$playbackContinuedInBackground read=${BaseReadAloudService.readAloudChapterIndex}/${BaseReadAloudService.readAloudChapterStart} dur=${ReadBook.durChapterIndex}/${ReadBook.durPageIndex}/${ReadBook.durChapterPos} visual=[${binding.readView.readAloudVisualDebugState()}]"
 +        )
 +        restoreReadAloudVisualPosition(ReadAloudVisualRestoreReason.ResumePlayback)
 +    }
@@ -527,7 +546,7 @@ index db62d85de..558dc4ea7 100644
      /**
       * 点击图片
       */
-@@ -1904,25 +2266,29 @@ class ReadBookActivity : BaseReadBookActivity(),
+@@ -1904,25 +2277,29 @@ class ReadBookActivity : BaseReadBookActivity(),
              }
          }
          observeEvent<Int>(EventBus.ALOUD_STATE) {
@@ -570,7 +589,7 @@ index db62d85de..558dc4ea7 100644
                      }
                  }
              }
-@@ -1954,6 +2320,170 @@ class ReadBookActivity : BaseReadBookActivity(),
+@@ -1954,6 +2331,172 @@ class ReadBookActivity : BaseReadBookActivity(),
          }
      }
  
@@ -595,13 +614,15 @@ index db62d85de..558dc4ea7 100644
 +            detail = "chapterStart=$chapterStart read=${BaseReadAloudService.readAloudChapterIndex}/${BaseReadAloudService.readAloudChapterStart} textChapter=${textChapter.chapter.index} targetPage=$pageIndex dur=${ReadBook.durChapterIndex}/${ReadBook.durPageIndex}/${ReadBook.durChapterPos} paused=$readAloudVisualFollowPaused visual=[${binding.readView.readAloudVisualDebugState()}]"
 +        )
 +        if (readAloudVisualFollowPaused) {
-+            if (ReadAloudVisualPositioner.shouldUpdateHighlightWhenFollowPaused(
-+                    readAloudParagraphVisible = readAloudParagraphVisibleOnScreen(
-+                        textChapter,
-+                        paragraph
-+                    )
-+                )
-+            ) {
++            val readAloudParagraphVisible = readAloudParagraphVisibleOnScreen(textChapter, paragraph)
++            val shouldUpdateHighlight = ReadAloudVisualPositioner.shouldUpdateHighlightWhenFollowPaused(
++                readAloudParagraphVisible = readAloudParagraphVisible
++            )
++            ReadAloudVisualTrace.record(
++                event = "pausedHighlight",
++                detail = "paragraphVisible=$readAloudParagraphVisible updated=$shouldUpdateHighlight targetPage=$pageIndex visual=[${binding.readView.readAloudVisualDebugState()}]"
++            )
++            if (shouldUpdateHighlight) {
 +                updateReadAloudParagraphSpan(paragraph)
 +                binding.readView.curPage.invalidateContentView()
 +            }
@@ -1522,10 +1543,10 @@ index 000000000..a8e2e07d7
 +}
 diff --git a/app/src/main/java/io/legado/app/ui/book/read/page/ReadAloudVisualPositioner.kt b/app/src/main/java/io/legado/app/ui/book/read/page/ReadAloudVisualPositioner.kt
 new file mode 100644
-index 000000000..504f0d6e0
+index 000000000..8e57a3feb
 --- /dev/null
 +++ b/app/src/main/java/io/legado/app/ui/book/read/page/ReadAloudVisualPositioner.kt
-@@ -0,0 +1,336 @@
+@@ -0,0 +1,339 @@
 +package io.legado.app.ui.book.read.page
 +
 +import kotlin.math.roundToInt
@@ -1710,9 +1731,12 @@ index 000000000..504f0d6e0
 +    fun shouldRestoreVisualFollowOnForeground(
 +        readAloudPlaying: Boolean,
 +        readAloudVisualFollowPaused: Boolean,
-+        readAloudPositionVisible: Boolean
++        readAloudPositionVisible: Boolean,
++        playbackContinuedInBackground: Boolean = false
 +    ): Boolean {
-+        return readAloudPlaying && readAloudVisualFollowPaused && !readAloudPositionVisible
++        if (!readAloudPlaying) return false
++        if (playbackContinuedInBackground) return true
++        return readAloudVisualFollowPaused && !readAloudPositionVisible
 +    }
 +
 +    fun followFallback(
@@ -2139,10 +2163,10 @@ index 000000000..dd48038cf
 +}
 diff --git a/app/src/test/java/io/legado/app/ui/book/read/page/ReadAloudVisualPositionerTest.kt b/app/src/test/java/io/legado/app/ui/book/read/page/ReadAloudVisualPositionerTest.kt
 new file mode 100644
-index 000000000..8ff0a0ca1
+index 000000000..3dcee4de1
 --- /dev/null
 +++ b/app/src/test/java/io/legado/app/ui/book/read/page/ReadAloudVisualPositionerTest.kt
-@@ -0,0 +1,891 @@
+@@ -0,0 +1,917 @@
 +package io.legado.app.ui.book.read.page
 +
 +import org.junit.Assert.assertEquals
@@ -2666,10 +2690,35 @@ index 000000000..8ff0a0ca1
 +        val shouldRestore = ReadAloudVisualPositioner.shouldRestoreVisualFollowOnForeground(
 +            readAloudPlaying = true,
 +            readAloudVisualFollowPaused = true,
-+            readAloudPositionVisible = true
++            readAloudPositionVisible = true,
++            playbackContinuedInBackground = false
 +        )
 +
 +        assertFalse(shouldRestore)
++    }
++
++    @Test
++    fun foregroundRestoreResumesPausedVisualFollowAfterBackgroundPlaybackEvenIfPositionLooksVisible() {
++        val shouldRestore = ReadAloudVisualPositioner.shouldRestoreVisualFollowOnForeground(
++            readAloudPlaying = true,
++            readAloudVisualFollowPaused = true,
++            readAloudPositionVisible = true,
++            playbackContinuedInBackground = true
++        )
++
++        assertTrue(shouldRestore)
++    }
++
++    @Test
++    fun foregroundRestoreResumesAfterBackgroundPlaybackEvenWhenVisualFollowWasNotPaused() {
++        val shouldRestore = ReadAloudVisualPositioner.shouldRestoreVisualFollowOnForeground(
++            readAloudPlaying = true,
++            readAloudVisualFollowPaused = false,
++            readAloudPositionVisible = true,
++            playbackContinuedInBackground = true
++        )
++
++        assertTrue(shouldRestore)
 +    }
 +
 +    @Test
@@ -2677,7 +2726,8 @@ index 000000000..8ff0a0ca1
 +        val shouldRestore = ReadAloudVisualPositioner.shouldRestoreVisualFollowOnForeground(
 +            readAloudPlaying = false,
 +            readAloudVisualFollowPaused = true,
-+            readAloudPositionVisible = false
++            readAloudPositionVisible = false,
++            playbackContinuedInBackground = true
 +        )
 +
 +        assertFalse(shouldRestore)

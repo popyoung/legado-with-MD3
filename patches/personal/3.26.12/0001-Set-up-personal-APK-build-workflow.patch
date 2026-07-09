@@ -1,18 +1,21 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From 8257ad4ce92442add2ad51dee060516a63c9734b Mon Sep 17 00:00:00 2001
 From: popyoung <popyoung@users.noreply.github.com>
 Date: Thu, 9 Jul 2026 00:00:00 +0800
 Subject: [PATCH 1/5] Set up personal APK build workflow and versioning
 
 ---
- .github/workflows/ci.yml        |  81 +++++++++++++++++++++++++++
- AGENTS.md                       |  10 ++++
+ .github/workflows/ci.yml        |  81 +++++++++++++++++++++
+ AGENTS.md                       |  10 +++
  CLAUDE.md                       |  12 ++++
- app/build.gradle.kts            |  20 ++++++-
+ app/build.gradle.kts            |  20 +++++-
  app/version.properties          |   3 +-
- docs/personal-patch-workflow.md | 120 ++++++++++++++++++++++++++++++++++++++++
+ docs/personal-patch-workflow.md | 120 ++++++++++++++++++++++++++++++++
  gradle/libs.versions.toml       |   2 +
  7 files changed, 244 insertions(+), 4 deletions(-)
----
+ create mode 100644 .github/workflows/ci.yml
+ create mode 100644 AGENTS.md
+ create mode 100644 docs/personal-patch-workflow.md
+
 diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
 new file mode 100644
 index 000000000..2633026c8
@@ -193,14 +196,14 @@ index 1343b12df..0a80cb403 100644
      implementation(libs.kotlin.stdlib)
      implementation(libs.kotlinx.collections.immutable)
 diff --git a/app/version.properties b/app/version.properties
-index d0bcfc9a8..843dfe1f4 100644
+index d0bcfc9a8..325653d57 100644
 --- a/app/version.properties
 +++ b/app/version.properties
 @@ -1,5 +1,6 @@
  VERSION_MAJOR=3
  VERSION_MINOR=26
  VERSION_PATCH=12
-+VERSION_PERSONAL=4
++VERSION_PERSONAL=5
  VERSION_SUFFIX=0
 -# 1 = Pre, 0 = Release
 \ No newline at end of file
@@ -351,3 +354,5 @@ index 68760ee17..1f0e3c285 100644
  kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }
  kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
  kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinxSerialization" }
+
+base-commit: b7e07a6478c2beeadd8027f0a2f7376ad302b644

@@ -281,6 +281,7 @@ class ReadBookActivity : BaseReadBookActivity(),
     private var bookChanged = false
     private var pageChanged = false
     private var readAloudVisualFollowPaused = false
+    private var readAloudPlaybackContinuedInBackground = false
     private var restoringReadAloudVisualPosition = false
     private var readAloudVisualPreparedForPause = false
     private var readAloudRestoreSerial = 0
@@ -434,6 +435,7 @@ class ReadBookActivity : BaseReadBookActivity(),
 
     override fun onPause() {
         super.onPause()
+        readAloudPlaybackContinuedInBackground = BaseReadAloudService.isPlay()
         autoPageStop()
         backupJob?.cancel()
         ReadBook.saveRead()
@@ -1674,18 +1676,27 @@ class ReadBookActivity : BaseReadBookActivity(),
     }
 
     private fun restoreReadAloudVisualOnForegroundIfNeeded() {
+        val playbackContinuedInBackground = readAloudPlaybackContinuedInBackground
+        readAloudPlaybackContinuedInBackground = false
         val readAloudPositionVisible = readAloudPositionVisibleOnScreen()
-        if (!ReadAloudVisualPositioner.shouldRestoreVisualFollowOnForeground(
-                readAloudPlaying = BaseReadAloudService.isPlay(),
-                readAloudVisualFollowPaused = readAloudVisualFollowPaused,
-                readAloudPositionVisible = readAloudPositionVisible
+        val shouldRestore = ReadAloudVisualPositioner.shouldRestoreVisualFollowOnForeground(
+            readAloudPlaying = BaseReadAloudService.isPlay(),
+            readAloudVisualFollowPaused = readAloudVisualFollowPaused,
+            readAloudPositionVisible = readAloudPositionVisible,
+            playbackContinuedInBackground = playbackContinuedInBackground
+        )
+        if (BaseReadAloudService.isPlay() && (readAloudVisualFollowPaused || playbackContinuedInBackground)) {
+            ReadAloudVisualTrace.record(
+                event = "foregroundRestoreEval",
+                detail = "shouldRestore=$shouldRestore visible=$readAloudPositionVisible background=$playbackContinuedInBackground read=${BaseReadAloudService.readAloudChapterIndex}/${BaseReadAloudService.readAloudChapterStart} dur=${ReadBook.durChapterIndex}/${ReadBook.durPageIndex}/${ReadBook.durChapterPos} visual=[${binding.readView.readAloudVisualDebugState()}]"
             )
-        ) {
+        }
+        if (!shouldRestore) {
             return
         }
         ReadAloudVisualTrace.record(
             event = "foregroundRestore",
-            detail = "visible=$readAloudPositionVisible read=${BaseReadAloudService.readAloudChapterIndex}/${BaseReadAloudService.readAloudChapterStart} dur=${ReadBook.durChapterIndex}/${ReadBook.durPageIndex}/${ReadBook.durChapterPos} visual=[${binding.readView.readAloudVisualDebugState()}]"
+            detail = "visible=$readAloudPositionVisible background=$playbackContinuedInBackground read=${BaseReadAloudService.readAloudChapterIndex}/${BaseReadAloudService.readAloudChapterStart} dur=${ReadBook.durChapterIndex}/${ReadBook.durPageIndex}/${ReadBook.durChapterPos} visual=[${binding.readView.readAloudVisualDebugState()}]"
         )
         restoreReadAloudVisualPosition(ReadAloudVisualRestoreReason.ResumePlayback)
     }
@@ -2341,13 +2352,15 @@ class ReadBookActivity : BaseReadBookActivity(),
             detail = "chapterStart=$chapterStart read=${BaseReadAloudService.readAloudChapterIndex}/${BaseReadAloudService.readAloudChapterStart} textChapter=${textChapter.chapter.index} targetPage=$pageIndex dur=${ReadBook.durChapterIndex}/${ReadBook.durPageIndex}/${ReadBook.durChapterPos} paused=$readAloudVisualFollowPaused visual=[${binding.readView.readAloudVisualDebugState()}]"
         )
         if (readAloudVisualFollowPaused) {
-            if (ReadAloudVisualPositioner.shouldUpdateHighlightWhenFollowPaused(
-                    readAloudParagraphVisible = readAloudParagraphVisibleOnScreen(
-                        textChapter,
-                        paragraph
-                    )
-                )
-            ) {
+            val readAloudParagraphVisible = readAloudParagraphVisibleOnScreen(textChapter, paragraph)
+            val shouldUpdateHighlight = ReadAloudVisualPositioner.shouldUpdateHighlightWhenFollowPaused(
+                readAloudParagraphVisible = readAloudParagraphVisible
+            )
+            ReadAloudVisualTrace.record(
+                event = "pausedHighlight",
+                detail = "paragraphVisible=$readAloudParagraphVisible updated=$shouldUpdateHighlight targetPage=$pageIndex visual=[${binding.readView.readAloudVisualDebugState()}]"
+            )
+            if (shouldUpdateHighlight) {
                 updateReadAloudParagraphSpan(paragraph)
                 binding.readView.curPage.invalidateContentView()
             }

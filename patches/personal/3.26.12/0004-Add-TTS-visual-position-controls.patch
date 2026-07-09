@@ -1,20 +1,20 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From 5fcea32552e5d8199bce94be6be7a4f325988086 Mon Sep 17 00:00:00 2001
 From: popyoung <popyoung@users.noreply.github.com>
 Date: Wed, 8 Jul 2026 00:00:00 +0800
 Subject: [PATCH 4/5] Add TTS visual position controls
 
 ---
- app/src/main/java/io/legado/app/constant/PreferKey.kt       |  1 +
- app/src/main/java/io/legado/app/help/config/AppConfig.kt    |  3 +++
- .../legado/app/ui/book/read/config/ReadAloudConfigDialog.kt |  9 +++++++++
- .../io/legado/app/ui/book/read/config/ReadAloudDialog.kt    |  8 +++++---
- app/src/main/res/values-zh-rCN/strings.xml                  |  2 ++
- app/src/main/res/values-zh-rHK/strings.xml                  |  2 ++
- app/src/main/res/values-zh-rTW/strings.xml                  |  2 ++
- app/src/main/res/values/strings.xml                         |  4 ++++
- app/src/main/res/xml/pref_config_aloud.xml                  | 13 +++++++++++++
+ .../main/java/io/legado/app/constant/PreferKey.kt   |  1 +
+ .../java/io/legado/app/help/config/AppConfig.kt     |  3 +++
+ .../ui/book/read/config/ReadAloudConfigDialog.kt    |  9 +++++++++
+ .../app/ui/book/read/config/ReadAloudDialog.kt      |  8 +++++---
+ app/src/main/res/values-zh-rCN/strings.xml          |  2 ++
+ app/src/main/res/values-zh-rHK/strings.xml          |  2 ++
+ app/src/main/res/values-zh-rTW/strings.xml          |  2 ++
+ app/src/main/res/values/strings.xml                 |  4 ++++
+ app/src/main/res/xml/pref_config_aloud.xml          | 13 +++++++++++++
  9 files changed, 41 insertions(+), 3 deletions(-)
----
+
 diff --git a/app/src/main/java/io/legado/app/constant/PreferKey.kt b/app/src/main/java/io/legado/app/constant/PreferKey.kt
 index 050a0fb05..f70e1e602 100644
 --- a/app/src/main/java/io/legado/app/constant/PreferKey.kt
