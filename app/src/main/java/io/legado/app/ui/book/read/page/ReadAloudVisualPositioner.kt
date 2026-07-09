@@ -179,6 +179,14 @@ internal object ReadAloudVisualPositioner {
         return visualPositionEnabled && readAloudPlaying && !readAloudPositionVisible
     }
 
+    fun shouldRestoreVisualFollowOnForeground(
+        readAloudPlaying: Boolean,
+        readAloudVisualFollowPaused: Boolean,
+        readAloudPositionVisible: Boolean
+    ): Boolean {
+        return readAloudPlaying && readAloudVisualFollowPaused && !readAloudPositionVisible
+    }
+
     fun followFallback(
         followSucceeded: Boolean,
         visualPageMatchesTarget: Boolean

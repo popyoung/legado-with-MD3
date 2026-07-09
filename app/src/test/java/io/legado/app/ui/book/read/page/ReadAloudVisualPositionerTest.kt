@@ -506,6 +506,39 @@ class ReadAloudVisualPositionerTest {
     }
 
     @Test
+    fun foregroundRestoreResumesHiddenPausedVisualFollowWhilePlaying() {
+        val shouldRestore = ReadAloudVisualPositioner.shouldRestoreVisualFollowOnForeground(
+            readAloudPlaying = true,
+            readAloudVisualFollowPaused = true,
+            readAloudPositionVisible = false
+        )
+
+        assertTrue(shouldRestore)
+    }
+
+    @Test
+    fun foregroundRestoreKeepsVisiblePausedVisualFollowInPlace() {
+        val shouldRestore = ReadAloudVisualPositioner.shouldRestoreVisualFollowOnForeground(
+            readAloudPlaying = true,
+            readAloudVisualFollowPaused = true,
+            readAloudPositionVisible = true
+        )
+
+        assertFalse(shouldRestore)
+    }
+
+    @Test
+    fun foregroundRestoreDoesNotRunWhenAudioPaused() {
+        val shouldRestore = ReadAloudVisualPositioner.shouldRestoreVisualFollowOnForeground(
+            readAloudPlaying = false,
+            readAloudVisualFollowPaused = true,
+            readAloudPositionVisible = false
+        )
+
+        assertFalse(shouldRestore)
+    }
+
+    @Test
     fun pausedResumeUsesStoredReadAloudPositionEvenAfterVisualPageChanged() {
         val shouldRestore = ReadAloudVisualPositioner.shouldRestoreStoredPositionOnResume(
             readAloudPaused = true,

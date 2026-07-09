@@ -718,6 +718,13 @@ class ReadView(context: Context, attrs: AttributeSet) :
         curPage.suppressReadAloudVisualScrollAfterRestore()
     }
 
+    fun prepareReadAloudVisualForPause(reason: String) {
+        if (isScroll) {
+            pageDelegate?.abortAnim()
+        }
+        curPage.settleReadAloudVisualFollow(reason)
+    }
+
     fun setReadAloudVisualCenterIndicator(show: Boolean): Boolean {
         return curPage.setReadAloudVisualCenterIndicator(show)
     }

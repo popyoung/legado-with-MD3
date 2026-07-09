@@ -375,6 +375,11 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
         postInvalidate()
     }
 
+    fun settleReadAloudVisualFollow(reason: String) {
+        materializeReadAloudFollow(reason)
+        postInvalidate()
+    }
+
     fun suppressReadAloudVisualScrollAfterRestore() {
         readAloudVisualScrollSuppressedUntil = max(
             readAloudVisualScrollSuppressedUntil,
@@ -478,6 +483,10 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
     }
 
     private fun resetReadAloudFollowByUserScroll() {
+        materializeReadAloudFollow("interruptFollowByScroll")
+    }
+
+    private fun materializeReadAloudFollow(event: String) {
         if (!readAloudFollowActive && readAloudPageOffset == 0) return
         syncReadBookVisualAnchorBeforeUserScroll()
         val previousPage = relativeDrawPageOrNull(-1)
@@ -492,7 +501,7 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
         )
         applyReadAloudMaterializedFollow(interruption, previousPage, nextPage, nextPlusPage)
         ReadAloudVisualTrace.record(
-            "interruptFollowByScroll",
+            event,
             "pageShift=${interruption.pageShift} ${readAloudVisualDebugState()}"
         )
     }

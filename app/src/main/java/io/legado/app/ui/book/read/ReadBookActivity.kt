@@ -282,6 +282,7 @@ class ReadBookActivity : BaseReadBookActivity(),
     private var pageChanged = false
     private var readAloudVisualFollowPaused = false
     private var restoringReadAloudVisualPosition = false
+    private var readAloudVisualPreparedForPause = false
     private var readAloudRestoreSerial = 0
     private var readAloudRestoreLoadingSerial = 0
     private var readAloudHighlightedPages = emptySet<ReadAloudParagraphHighlighter.HighlightedPage>()
@@ -333,6 +334,7 @@ class ReadBookActivity : BaseReadBookActivity(),
                         ReadAloudVisualRestoreReason.BackNavigation
                     )
                 ) {
+                    prepareReadAloudVisualForPause("BackNavigation")
                     ReadAloud.pause(this@ReadBookActivity)
                     toastOnUi(R.string.read_aloud_pause)
                 }
@@ -427,6 +429,7 @@ class ReadBookActivity : BaseReadBookActivity(),
                 ReadBook.syncProgress({ progress -> sureNewProgress(progress) })
             }
         }
+        restoreReadAloudVisualOnForegroundIfNeeded()
     }
 
     override fun onPause() {
@@ -1506,6 +1509,7 @@ class ReadBookActivity : BaseReadBookActivity(),
         autoPageStop()
         when {
             !BaseReadAloudService.isRun -> {
+                readAloudVisualPreparedForPause = false
                 readAloudVisualFollowPaused = false
                 ReadAloud.upReadAloudClass()
                 val scrollPageAnim = ReadBook.pageAnim() == 3
@@ -1529,6 +1533,7 @@ class ReadBookActivity : BaseReadBookActivity(),
             }
 
             BaseReadAloudService.pause -> {
+                readAloudVisualPreparedForPause = false
                 readAloudVisualFollowPaused = false
                 if (ReadAloudVisualPositioner.shouldRestoreStoredPositionOnResume(
                         readAloudPaused = BaseReadAloudService.pause,
@@ -1541,7 +1546,10 @@ class ReadBookActivity : BaseReadBookActivity(),
                 ReadAloud.resume(this)
             }
 
-            else -> ReadAloud.pause(this)
+            else -> {
+                prepareReadAloudVisualForPause("ReadAloudButton")
+                ReadAloud.pause(this)
+            }
         }
     }
 
@@ -1663,6 +1671,35 @@ class ReadBookActivity : BaseReadBookActivity(),
             clearReadAloudRestoring(restoreSerial)
         }, 30000)
         return true
+    }
+
+    private fun restoreReadAloudVisualOnForegroundIfNeeded() {
+        val readAloudPositionVisible = readAloudPositionVisibleOnScreen()
+        if (!ReadAloudVisualPositioner.shouldRestoreVisualFollowOnForeground(
+                readAloudPlaying = BaseReadAloudService.isPlay(),
+                readAloudVisualFollowPaused = readAloudVisualFollowPaused,
+                readAloudPositionVisible = readAloudPositionVisible
+            )
+        ) {
+            return
+        }
+        ReadAloudVisualTrace.record(
+            event = "foregroundRestore",
+            detail = "visible=$readAloudPositionVisible read=${BaseReadAloudService.readAloudChapterIndex}/${BaseReadAloudService.readAloudChapterStart} dur=${ReadBook.durChapterIndex}/${ReadBook.durPageIndex}/${ReadBook.durChapterPos} visual=[${binding.readView.readAloudVisualDebugState()}]"
+        )
+        restoreReadAloudVisualPosition(ReadAloudVisualRestoreReason.ResumePlayback)
+    }
+
+    private fun prepareReadAloudVisualForPause(reason: String) {
+        if (readAloudVisualPreparedForPause) return
+        readAloudVisualPreparedForPause = true
+        cancelReadAloudVisualRestore()
+        readAloudVisualFollowPaused = false
+        binding.readView.prepareReadAloudVisualForPause(reason)
+        ReadAloudVisualTrace.record(
+            event = "pauseVisualPrepare",
+            detail = "reason=$reason visual=[${binding.readView.readAloudVisualDebugState()}]"
+        )
     }
 
     private fun clearReadAloudRestoring(restoreSerial: Int) {
@@ -2229,7 +2266,11 @@ class ReadBookActivity : BaseReadBookActivity(),
             }
         }
         observeEvent<Int>(EventBus.ALOUD_STATE) {
+            if (it == Status.PLAY) {
+                readAloudVisualPreparedForPause = false
+            }
             if (it == Status.STOP || it == Status.PAUSE) {
+                prepareReadAloudVisualForPause("State$it")
                 if (ReadBook.curTextChapter != null) {
                     clearReadAloudParagraphSpan()
                     readView.upContent(resetPageOffset = false)

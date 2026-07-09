@@ -449,6 +449,10 @@ class PageView(context: Context) : FrameLayout(context) {
         binding.contentTextView.clearReadAloudVisualFollow()
     }
 
+    fun settleReadAloudVisualFollow(reason: String) {
+        binding.contentTextView.settleReadAloudVisualFollow(reason)
+    }
+
     fun suppressReadAloudVisualScrollAfterRestore() {
         binding.contentTextView.suppressReadAloudVisualScrollAfterRestore()
     }
