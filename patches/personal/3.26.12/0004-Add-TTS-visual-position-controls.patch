@@ -1,4 +1,4 @@
-From 5fcea32552e5d8199bce94be6be7a4f325988086 Mon Sep 17 00:00:00 2001
+From c7a6b618123d2e769ac69c047c238c075bbe5a0e Mon Sep 17 00:00:00 2001
 From: popyoung <popyoung@users.noreply.github.com>
 Date: Wed, 8 Jul 2026 00:00:00 +0800
 Subject: [PATCH 4/5] Add TTS visual position controls
@@ -179,3 +179,6 @@ index a2b1d076a..2a3c0394a 100644
          <io.legado.app.lib.prefs.SwitchPreference
              android:defaultValue="false"
              android:key="systemMediaControlCompatibilityChange"
+-- 
+2.33.0.windows.2
+

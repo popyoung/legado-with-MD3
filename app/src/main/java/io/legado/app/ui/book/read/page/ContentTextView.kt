@@ -376,7 +376,10 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
     }
 
     fun settleReadAloudVisualFollow(reason: String) {
-        materializeReadAloudFollow(reason)
+        materializeReadAloudFollow(
+            event = reason,
+            syncVisualAnchor = false
+        )
         postInvalidate()
     }
 
@@ -437,7 +440,13 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
         )
         readAloudPageOffset = effectiveOffset - pageOffset
         readAloudFollowActive = true
-        val pageShift = materializeReadAloudFollowAnchor(paragraph.chapterPosition)
+        val pageShift = materializeReadAloudFollowAnchor(
+            ReadAloudVisualPositioner.PageAnchor(
+                chapterIndex = firstLine.textPage.chapterIndex,
+                pageIndex = firstLine.textPage.index,
+                chapterPosition = paragraph.chapterPosition
+            )
+        )
         ReadAloudVisualTrace.record(
             event = "follow",
             detail = "target=${firstLine.textPage.chapterIndex}/${firstLine.textPage.index} paragraph=${paragraph.chapterPosition}-${paragraph.chapterIndices.last} top=$paragraphTop bottom=$paragraphBottom initial=$initialEffectiveOffset effective=$effectiveOffset pageShift=$pageShift ${readAloudVisualDebugState()}"
@@ -483,12 +492,19 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
     }
 
     private fun resetReadAloudFollowByUserScroll() {
-        materializeReadAloudFollow("interruptFollowByScroll")
+        materializeReadAloudFollow(
+            event = "interruptFollowByScroll",
+            syncVisualAnchor = true
+        )
     }
 
-    private fun materializeReadAloudFollow(event: String) {
+    private fun materializeReadAloudFollow(
+        event: String,
+        syncVisualAnchor: Boolean
+    ) {
         if (!readAloudFollowActive && readAloudPageOffset == 0) return
-        syncReadBookVisualAnchorBeforeUserScroll()
+        val followWasActive = readAloudFollowActive
+        val visualAnchor = if (syncVisualAnchor) readAloudVisibleAnchor() else null
         val previousPage = relativeDrawPageOrNull(-1)
         val nextPage = relativeDrawPageOrNull(1)
         val nextPlusPage = relativeDrawPageOrNull(2)
@@ -500,34 +516,57 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
             nextPlusPageHeight = nextPlusPage?.height
         )
         applyReadAloudMaterializedFollow(interruption, previousPage, nextPage, nextPlusPage)
+        if (syncVisualAnchor) {
+            syncReadBookVisualAnchorBeforeUserScroll(followWasActive, visualAnchor)
+        }
         ReadAloudVisualTrace.record(
             event,
             "pageShift=${interruption.pageShift} ${readAloudVisualDebugState()}"
         )
     }
 
-    private fun syncReadBookVisualAnchorBeforeUserScroll() {
+    private fun readAloudVisibleAnchor(): ReadAloudVisualPositioner.PageAnchor? {
+        val (chapterIndex, line) = getReadAloudPos() ?: return null
+        // getReadAloudPos returns a copied line, so resolve its page from stable chapter coordinates.
+        val pageIndex = cachedTextChapter(chapterIndex)
+            ?.getPageIndexByCharIndex(line.chapterPosition)
+            ?.takeIf { it >= 0 }
+            ?: return null
+        return ReadAloudVisualPositioner.PageAnchor(
+            chapterIndex = chapterIndex,
+            pageIndex = pageIndex,
+            chapterPosition = line.chapterPosition
+        )
+    }
+
+    private fun syncReadBookVisualAnchorBeforeUserScroll(
+        followWasActive: Boolean,
+        visualAnchor: ReadAloudVisualPositioner.PageAnchor?
+    ) {
+        visualAnchor ?: return
         if (!ReadAloudVisualPositioner.shouldSyncVisualPageBeforeUserScroll(
-                readAloudFollowActive = readAloudFollowActive,
-                visualChapterIndex = textPage.chapterIndex,
-                visualPageIndex = textPage.index,
+                readAloudFollowActive = followWasActive,
+                visualChapterIndex = visualAnchor.chapterIndex,
+                visualPageIndex = visualAnchor.pageIndex,
                 readBookChapterIndex = ReadBook.durChapterIndex,
                 readBookPageIndex = ReadBook.durPageIndex
             )
         ) {
             return
         }
-        val chapterPosition = textPage.lines.firstOrNull()?.chapterPosition
-        ReadBook.withReadAloudPageChange {
-            ReadBook.setPageIndex(textPage.index, chapterPosition)
-        }
+        val anchorPage = cachedTextChapter(visualAnchor.chapterIndex)
+            ?.getPage(visualAnchor.pageIndex)
+            ?: return
+        updateReadBookVisualAnchor(anchorPage, visualAnchor.chapterPosition)
         ReadAloudVisualTrace.record(
             event = "syncVisualAnchorBeforeScroll",
-            detail = "chapterPosition=$chapterPosition ${readAloudVisualDebugState()}"
+            detail = "anchor=${visualAnchor.chapterIndex}/${visualAnchor.pageIndex}/${visualAnchor.chapterPosition} ${readAloudVisualDebugState()}"
         )
     }
 
-    private fun materializeReadAloudFollowAnchor(chapterPosition: Int): Int {
+    private fun materializeReadAloudFollowAnchor(
+        targetAnchor: ReadAloudVisualPositioner.PageAnchor
+    ): Int {
         // Keep chapter-boundary top padding from being folded back into the previous chapter.
         val previousPage = textPage.getTextChapter().getPage(textPage.index - 1)
         val nextPage = relativeDrawPageOrNull(1)
@@ -544,7 +583,7 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
             previousPage = previousPage,
             nextPage = nextPage,
             nextPlusPage = nextPlusPage,
-            chapterPosition = chapterPosition
+            targetAnchor = targetAnchor
         )
         return materialized.pageShift
     }
@@ -554,7 +593,7 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
         previousPage: TextPage?,
         nextPage: TextPage?,
         nextPlusPage: TextPage?,
-        chapterPosition: Int? = null
+        targetAnchor: ReadAloudVisualPositioner.PageAnchor? = null
     ) {
         when (interruption.pageShift) {
             -1 -> previousPage
@@ -562,22 +601,42 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
             2 -> nextPlusPage
             else -> null
         }?.let {
-            val targetChapter = it.getTextChapter()
-            val targetChapterPosition = chapterPosition ?: it.lines.firstOrNull()?.chapterPosition
-            ReadBook.withReadAloudPageChange {
-                if (ReadBook.durChapterIndex != it.chapterIndex ||
-                    ReadBook.curTextChapter !== targetChapter
-                ) {
-                    ReadBook.alignToReadAloudChapter(
-                        textChapter = targetChapter,
-                        chapterPos = targetChapterPosition ?: 0
-                    )
-                }
-                ReadBook.setPageIndex(it.index, targetChapterPosition)
+            val anchor = targetAnchor
+            val targetChapterPosition = ReadAloudVisualPositioner.materializedAnchorPosition(
+                anchor = anchor,
+                materializedChapterIndex = it.chapterIndex,
+                materializedPageIndex = it.index
+            )
+            if (targetChapterPosition != null && anchor != null) {
+                updateReadBookVisualAnchor(it, targetChapterPosition)
+                ReadAloudVisualTrace.record(
+                    event = "materializedAnchor",
+                    detail = "action=apply target=${anchor.chapterIndex}/${anchor.pageIndex}/${anchor.chapterPosition} materialized=${it.chapterIndex}/${it.index}"
+                )
+            } else if (anchor != null) {
+                ReadAloudVisualTrace.record(
+                    event = "materializedAnchor",
+                    detail = "action=skip target=${anchor.chapterIndex}/${anchor.pageIndex}/${anchor.chapterPosition} materialized=${it.chapterIndex}/${it.index}"
+                )
             }
             textPage = it
         }
         applyReadAloudFollowState(interruption.state)
+    }
+
+    private fun updateReadBookVisualAnchor(page: TextPage, chapterPosition: Int) {
+        val targetChapter = page.getTextChapter()
+        ReadBook.withReadAloudPageChange {
+            if (ReadBook.durChapterIndex != page.chapterIndex ||
+                ReadBook.curTextChapter !== targetChapter
+            ) {
+                ReadBook.alignToReadAloudChapter(
+                    textChapter = targetChapter,
+                    chapterPos = chapterPosition
+                )
+            }
+            ReadBook.setPageIndex(page.index, chapterPosition)
+        }
     }
 
     fun setReadAloudVisualCenterIndicator(show: Boolean): Boolean {

@@ -1,4 +1,4 @@
-From 252425ad39f9cd25094960207e9130cbcdfd2955 Mon Sep 17 00:00:00 2001
+From d2f1f905d33a608459ff805bd18c16cb66a508c4 Mon Sep 17 00:00:00 2001
 From: popyoung <popyoung@users.noreply.github.com>
 Date: Wed, 8 Jul 2026 00:00:00 +0800
 Subject: [PATCH 2/5] Add TTS playback state and progress helpers
@@ -824,3 +824,6 @@ index 000000000..895dffde7
 +        assertEquals(80, position.paragraphStartPos)
 +    }
 +}
+-- 
+2.33.0.windows.2
+

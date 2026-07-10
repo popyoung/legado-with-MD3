@@ -1,4 +1,4 @@
-From 60f0c2dfee82fcd808c44b0ed92264b10b831650 Mon Sep 17 00:00:00 2001
+From e324295d89fabb91c893a346bb8d56008b49a5cd Mon Sep 17 00:00:00 2001
 From: popyoung <popyoung@users.noreply.github.com>
 Date: Wed, 8 Jul 2026 00:00:00 +0800
 Subject: [PATCH 5/5] Add TTS visual diagnostics export
@@ -140,3 +140,6 @@ index 000000000..bb243170e
 +        }
 +    }
 +}
+-- 
+2.33.0.windows.2
+

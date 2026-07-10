@@ -753,7 +753,7 @@ class ReadAloudVisualPositionerTest {
     }
 
     @Test
-    fun differentReadBookChapterDoesNotSyncVisualAnchorBeforeUserScroll() {
+    fun visibleAnchorInDifferentChapterSyncsBeforeUserScroll() {
         val shouldSync = ReadAloudVisualPositioner.shouldSyncVisualPageBeforeUserScroll(
             readAloudFollowActive = true,
             visualChapterIndex = 213,
@@ -762,7 +762,52 @@ class ReadAloudVisualPositionerTest {
             readBookPageIndex = 0
         )
 
-        assertFalse(shouldSync)
+        assertTrue(shouldSync)
+    }
+
+    @Test
+    fun targetAnchorDoesNotApplyToIntermediatePageFromPreviousChapter() {
+        val position = ReadAloudVisualPositioner.materializedAnchorPosition(
+            anchor = ReadAloudVisualPositioner.PageAnchor(
+                chapterIndex = 275,
+                pageIndex = 0,
+                chapterPosition = 9
+            ),
+            materializedChapterIndex = 274,
+            materializedPageIndex = 8
+        )
+
+        assertNull(position)
+    }
+
+    @Test
+    fun targetAnchorDoesNotApplyToDifferentPageInSameChapter() {
+        val position = ReadAloudVisualPositioner.materializedAnchorPosition(
+            anchor = ReadAloudVisualPositioner.PageAnchor(
+                chapterIndex = 275,
+                pageIndex = 0,
+                chapterPosition = 9
+            ),
+            materializedChapterIndex = 275,
+            materializedPageIndex = 1
+        )
+
+        assertNull(position)
+    }
+
+    @Test
+    fun targetAnchorAppliesWhenMaterializedPageMatchesExactly() {
+        val position = ReadAloudVisualPositioner.materializedAnchorPosition(
+            anchor = ReadAloudVisualPositioner.PageAnchor(
+                chapterIndex = 275,
+                pageIndex = 0,
+                chapterPosition = 9
+            ),
+            materializedChapterIndex = 275,
+            materializedPageIndex = 0
+        )
+
+        assertEquals(9, position)
     }
 
     @Test

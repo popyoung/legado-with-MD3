@@ -12,6 +12,12 @@ internal object ReadAloudVisualPositioner {
         val active: Boolean
     )
 
+    data class PageAnchor(
+        val chapterIndex: Int,
+        val pageIndex: Int,
+        val chapterPosition: Int
+    )
+
     data class InterruptedFollowState(
         val pageShift: Int,
         val state: FollowState
@@ -258,8 +264,19 @@ internal object ReadAloudVisualPositioner {
         readBookPageIndex: Int
     ): Boolean {
         return readAloudFollowActive &&
-                visualChapterIndex == readBookChapterIndex &&
-                visualPageIndex != readBookPageIndex
+                (visualChapterIndex != readBookChapterIndex ||
+                        visualPageIndex != readBookPageIndex)
+    }
+
+    fun materializedAnchorPosition(
+        anchor: PageAnchor?,
+        materializedChapterIndex: Int,
+        materializedPageIndex: Int
+    ): Int? {
+        return anchor?.takeIf {
+            it.chapterIndex == materializedChapterIndex &&
+                    it.pageIndex == materializedPageIndex
+        }?.chapterPosition
     }
 
     fun clearFollowState(state: FollowState): FollowState {
