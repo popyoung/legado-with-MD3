@@ -1,28 +1,32 @@
-From 3016fa8a14e923b1feae66555605c1d87c6bab86 Mon Sep 17 00:00:00 2001
+From 358726ee7b67be9fda9995cc2ad9e2eac79f5c22 Mon Sep 17 00:00:00 2001
 From: popyoung <popyoung@users.noreply.github.com>
 Date: Thu, 9 Jul 2026 00:00:00 +0800
 Subject: [PATCH 3/5] Refine TTS visual follow and highlighting
 
 ---
- .../app/ui/book/read/ReadBookActivity.kt      | 617 ++++++++++-
- .../app/ui/book/read/page/ContentTextView.kt  | 561 +++++++++-
- .../legado/app/ui/book/read/page/PageView.kt  |  46 +-
- .../page/ReadAloudParagraphHighlighter.kt     |  49 +
- .../read/page/ReadAloudVisualPositioner.kt    | 356 +++++++
- .../legado/app/ui/book/read/page/ReadView.kt  |  49 +-
- .../ui/book/read/page/entities/TextLine.kt    |  11 +-
- .../ui/book/read/page/entities/TextPage.kt    |  15 +-
- .../read/page/provider/TextPageFactory.kt     |   3 +
- .../page/ReadAloudParagraphHighlighterTest.kt |  95 ++
- .../page/ReadAloudVisualPositionerTest.kt     | 962 ++++++++++++++++++
- 11 files changed, 2693 insertions(+), 71 deletions(-)
+ .../app/ui/book/read/ReadBookActivity.kt      |  710 ++++++++++-
+ .../app/ui/book/read/page/ContentTextView.kt  |  561 ++++++++-
+ .../legado/app/ui/book/read/page/PageView.kt  |   46 +-
+ .../page/ReadAloudParagraphHighlighter.kt     |   49 +
+ .../read/page/ReadAloudVisualPositioner.kt    |  389 +++++++
+ .../legado/app/ui/book/read/page/ReadView.kt  |   49 +-
+ .../ui/book/read/page/entities/TextLine.kt    |   11 +-
+ .../ui/book/read/page/entities/TextPage.kt    |   15 +-
+ .../read/page/provider/TextPageFactory.kt     |    3 +
+ .../page/ReadAloudParagraphHighlighterTest.kt |   95 ++
+ .../page/ReadAloudVisualPositionerTest.kt     | 1034 +++++++++++++++++
+ .../plans/2026-07-14-tts-visual-state-sync.md |  382 ++++++
+ ...2026-07-14-tts-visual-state-sync-design.md |  124 ++
+ 13 files changed, 3397 insertions(+), 71 deletions(-)
  create mode 100644 app/src/main/java/io/legado/app/ui/book/read/page/ReadAloudParagraphHighlighter.kt
  create mode 100644 app/src/main/java/io/legado/app/ui/book/read/page/ReadAloudVisualPositioner.kt
  create mode 100644 app/src/test/java/io/legado/app/ui/book/read/page/ReadAloudParagraphHighlighterTest.kt
  create mode 100644 app/src/test/java/io/legado/app/ui/book/read/page/ReadAloudVisualPositionerTest.kt
+ create mode 100644 docs/superpowers/plans/2026-07-14-tts-visual-state-sync.md
+ create mode 100644 docs/superpowers/specs/2026-07-14-tts-visual-state-sync-design.md
 
 diff --git a/app/src/main/java/io/legado/app/ui/book/read/ReadBookActivity.kt b/app/src/main/java/io/legado/app/ui/book/read/ReadBookActivity.kt
-index db62d85de..b287970b8 100644
+index db62d85de..963ea4a33 100644
 --- a/app/src/main/java/io/legado/app/ui/book/read/ReadBookActivity.kt
 +++ b/app/src/main/java/io/legado/app/ui/book/read/ReadBookActivity.kt
 @@ -57,6 +57,7 @@ import io.legado.app.lib.dialogs.SelectItem
@@ -49,7 +53,7 @@ index db62d85de..b287970b8 100644
  import io.legado.app.ui.book.read.page.provider.ChapterProvider
  import io.legado.app.ui.book.read.page.provider.LayoutProgressListener
  import io.legado.app.ui.book.read.page.provider.TextChapterLayout
-@@ -273,6 +280,13 @@ class ReadBookActivity : BaseReadBookActivity(),
+@@ -273,6 +280,14 @@ class ReadBookActivity : BaseReadBookActivity(),
      private val prevPageDebounce by lazy { Debounce { keyPage(PageDirection.PREV) } }
      private var bookChanged = false
      private var pageChanged = false
@@ -60,10 +64,11 @@ index db62d85de..b287970b8 100644
 +    private var readAloudRestoreSerial = 0
 +    private var readAloudRestoreLoadingSerial = 0
 +    private var readAloudHighlightedPages = emptySet<ReadAloudParagraphHighlighter.HighlightedPage>()
++    private var lastReadAloudPresentationVisible: Boolean? = null
      private val handler by lazy { buildMainHandler() }
      private val screenOffRunnable by lazy { Runnable { keepScreenOn(false) } }
      private val executor = ReadBook.executor
-@@ -283,6 +297,11 @@ class ReadBookActivity : BaseReadBookActivity(),
+@@ -283,6 +298,19 @@ class ReadBookActivity : BaseReadBookActivity(),
          }
      }
  
@@ -72,10 +77,18 @@ index db62d85de..b287970b8 100644
 +        ResumePlayback(true)
 +    }
 +
++    private data class ReadAloudPresentationSnapshot(
++        val chapterIndex: Int,
++        val chapterStart: Int,
++        val textChapter: TextChapter?,
++        val paragraph: TextParagraph?,
++        val paragraphVisible: Boolean
++    )
++
      //恢复跳转前进度对话框的交互结果
      private var confirmRestoreProcess: Boolean? = null
      private val networkChangedListener by lazy {
-@@ -312,8 +331,14 @@ class ReadBookActivity : BaseReadBookActivity(),
+@@ -312,8 +340,14 @@ class ReadBookActivity : BaseReadBookActivity(),
                  return@addCallback
              }
              if (BaseReadAloudService.isPlay()) {
@@ -92,7 +105,7 @@ index db62d85de..b287970b8 100644
                  return@addCallback
              }
              if (isAutoPage) {
-@@ -405,10 +430,12 @@ class ReadBookActivity : BaseReadBookActivity(),
+@@ -405,10 +439,12 @@ class ReadBookActivity : BaseReadBookActivity(),
                  ReadBook.syncProgress({ progress -> sureNewProgress(progress) })
              }
          }
@@ -105,7 +118,7 @@ index db62d85de..b287970b8 100644
          autoPageStop()
          backupJob?.cancel()
          ReadBook.saveRead()
-@@ -1134,6 +1161,7 @@ class ReadBookActivity : BaseReadBookActivity(),
+@@ -1134,6 +1170,7 @@ class ReadBookActivity : BaseReadBookActivity(),
              intent.removeExtra("readAloud")
              ReadBook.readAloud()
          }
@@ -113,7 +126,7 @@ index db62d85de..b287970b8 100644
          loadStates = true
      }
  
-@@ -1189,9 +1217,19 @@ class ReadBookActivity : BaseReadBookActivity(),
+@@ -1189,9 +1226,19 @@ class ReadBookActivity : BaseReadBookActivity(),
      /**
       * 页面改变
       */
@@ -135,7 +148,7 @@ index db62d85de..b287970b8 100644
          handler.post {
              upSeekBarProgress()
          }
-@@ -1473,6 +1511,8 @@ class ReadBookActivity : BaseReadBookActivity(),
+@@ -1473,6 +1520,8 @@ class ReadBookActivity : BaseReadBookActivity(),
          autoPageStop()
          when {
              !BaseReadAloudService.isRun -> {
@@ -144,7 +157,7 @@ index db62d85de..b287970b8 100644
                  ReadAloud.upReadAloudClass()
                  val scrollPageAnim = ReadBook.pageAnim() == 3
                  if (scrollPageAnim) {
-@@ -1481,11 +1521,10 @@ class ReadBookActivity : BaseReadBookActivity(),
+@@ -1481,11 +1530,10 @@ class ReadBookActivity : BaseReadBookActivity(),
                          val (index, line) = pos
                          if (ReadBook.durChapterIndex != index) {
                              ReadBook.openChapter(index, line.chapterPosition, false) {
@@ -158,7 +171,7 @@ index db62d85de..b287970b8 100644
                          }
                      } else {
                          ReadBook.readAloud()
-@@ -1496,36 +1535,370 @@ class ReadBookActivity : BaseReadBookActivity(),
+@@ -1496,36 +1544,424 @@ class ReadBookActivity : BaseReadBookActivity(),
              }
  
              BaseReadAloudService.pause -> {
@@ -232,19 +245,73 @@ index db62d85de..b287970b8 100644
 +            return false
 +        }
 +        val (index, line) = pos
-+        readAloudVisualFollowPaused = false
 +        ReadAloudVisualTrace.record(
 +            event = "manualStepVisualCenter",
 +            detail = "chapter=$index lineChapterPos=${line.chapterPosition} linePagePos=${line.pagePosition} paragraph=${line.paragraphNum} visual=[${binding.readView.readAloudVisualDebugState()}]"
 +        )
-+        if (ReadBook.durChapterIndex != index) {
-+            ReadBook.openChapter(index, line.chapterPosition, false) {
++        val currentChapterIndex = ReadBook.curTextChapter?.chapter?.index
++            ?: ReadBook.durChapterIndex
++        val targetChapter = cachedReadAloudTextChapter(index)
++        when (ReadAloudVisualPositioner.visualCenterChapterAction(
++            currentChapterIndex = currentChapterIndex,
++            targetChapterIndex = index,
++            targetChapterCached = targetChapter != null
++        )) {
++            ReadAloudVisualPositioner.VisualCenterChapterAction.KeepCurrent -> {
++                readAloudVisualFollowPaused = false
 +                readAloudFromLineParagraphStart(line)
 +            }
-+        } else {
-+            readAloudFromLineParagraphStart(line)
++
++            ReadAloudVisualPositioner.VisualCenterChapterAction.AlignCached -> {
++                targetChapter ?: return true
++                readAloudVisualFollowPaused = false
++                ReadBook.alignToReadAloudChapter(targetChapter, line.chapterPosition)
++                ReadAloudVisualTrace.record(
++                    event = "manualStepVisualCenterChapter",
++                    detail = "action=alignCached chapter=$index lineChapterPos=${line.chapterPosition}"
++                )
++                readAloudFromLineParagraphStart(line)
++            }
++
++            ReadAloudVisualPositioner.VisualCenterChapterAction.Reject -> {
++                ReadAloudVisualTrace.record(
++                    event = "manualStepVisualCenterFail",
++                    detail = "reason=missingCachedChapter chapter=$index lineChapterPos=${line.chapterPosition} visual=[${binding.readView.readAloudVisualDebugState()}]"
++                )
++            }
 +        }
 +        return true
++    }
++
++    private fun cachedReadAloudTextChapter(chapterIndex: Int): TextChapter? {
++        return sequenceOf(
++            ReadBook.textChapter(-1),
++            ReadBook.textChapter(0),
++            ReadBook.textChapter(1)
++        ).filterNotNull().firstOrNull {
++            it.isCompleted && it.chapter.index == chapterIndex
++        }
++    }
++
++    private fun readAloudPresentationSnapshot(
++        chapterIndex: Int,
++        chapterStart: Int,
++        preferredTextChapter: TextChapter? = null
++    ): ReadAloudPresentationSnapshot {
++        val textChapter = preferredTextChapter?.takeIf {
++            it.isCompleted && it.chapter.index == chapterIndex
++        } ?: cachedReadAloudTextChapter(chapterIndex)
++        val paragraph = textChapter?.let { findReadAloudParagraph(it, chapterStart) }
++        val paragraphVisible = textChapter != null && paragraph?.let {
++            readAloudParagraphVisibleOnScreen(textChapter, it)
++        } == true
++        return ReadAloudPresentationSnapshot(
++            chapterIndex = chapterIndex,
++            chapterStart = chapterStart,
++            textChapter = textChapter,
++            paragraph = paragraph,
++            paragraphVisible = paragraphVisible
++        )
 +    }
 +
 +    private fun readAloudPositionVisibleOnScreen(): Boolean {
@@ -449,8 +516,8 @@ index db62d85de..b287970b8 100644
 +                        event = "restoreVisualResult",
 +                        detail = "reason=${restoreReason.name} action=followVisible follow=true page=$pageIndex visual=[${binding.readView.readAloudVisualDebugState()}]"
 +                    )
-                 }
-             }
++                }
++            }
 +            return
 +        }
 +        val initialEffectiveOffset = paragraph?.let {
@@ -473,8 +540,7 @@ index db62d85de..b287970b8 100644
 +            }
 +        )
 +    }
- 
--            else -> ReadAloud.pause(this)
++
 +    private fun jumpToReadAloudPage(
 +        textChapter: TextChapter,
 +        pageIndex: Int,
@@ -497,11 +563,12 @@ index db62d85de..b287970b8 100644
 +                }
 +                if (isCurrent()) {
 +                    afterJump()
-+                }
-+            }
-         }
-     }
+                 }
+             }
++        }
++    }
  
+-            else -> ReadAloud.pause(this)
 +    private fun readAloudFromLineParagraphStart(line: TextLine) {
 +        val textChapter = ReadBook.curTextChapter ?: run {
 +            ReadAloudVisualTrace.record(
@@ -520,7 +587,7 @@ index db62d85de..b287970b8 100644
 +            )
 +            ReadBook.readAloud(startPos = line.pagePosition)
 +            return
-+        }
+         }
 +        val pageIndex = paragraph.firstLine.textPage.index
 +        val startPos = paragraph.chapterPosition - textChapter.getReadLength(pageIndex)
 +        ReadBook.durChapterPos = paragraph.chapterPosition
@@ -529,8 +596,8 @@ index db62d85de..b287970b8 100644
 +            detail = "chapter=${textChapter.chapter.index} page=$pageIndex startPos=$startPos paragraph=${paragraph.chapterPosition}-${paragraph.chapterIndices.last} line=${line.chapterPosition}/${line.pagePosition}"
 +        )
 +        ReadBook.readAloud(pageIndex = pageIndex, startPos = startPos.coerceAtLeast(0))
-+    }
-+
+     }
+ 
      override fun showHelp() {
          showHelp("readMenuHelp")
      }
@@ -546,7 +613,7 @@ index db62d85de..b287970b8 100644
      /**
       * 点击图片
       */
-@@ -1904,25 +2277,29 @@ class ReadBookActivity : BaseReadBookActivity(),
+@@ -1904,25 +2340,29 @@ class ReadBookActivity : BaseReadBookActivity(),
              }
          }
          observeEvent<Int>(EventBus.ALOUD_STATE) {
@@ -589,7 +656,7 @@ index db62d85de..b287970b8 100644
                      }
                  }
              }
-@@ -1954,6 +2331,172 @@ class ReadBookActivity : BaseReadBookActivity(),
+@@ -1954,6 +2394,202 @@ class ReadBookActivity : BaseReadBookActivity(),
          }
      }
  
@@ -614,19 +681,22 @@ index db62d85de..b287970b8 100644
 +            detail = "chapterStart=$chapterStart read=${BaseReadAloudService.readAloudChapterIndex}/${BaseReadAloudService.readAloudChapterStart} textChapter=${textChapter.chapter.index} targetPage=$pageIndex dur=${ReadBook.durChapterIndex}/${ReadBook.durPageIndex}/${ReadBook.durChapterPos} paused=$readAloudVisualFollowPaused visual=[${binding.readView.readAloudVisualDebugState()}]"
 +        )
 +        if (readAloudVisualFollowPaused) {
-+            val readAloudParagraphVisible = readAloudParagraphVisibleOnScreen(textChapter, paragraph)
++            val snapshot = readAloudPresentationSnapshot(
++                chapterIndex = textChapter.chapter.index,
++                chapterStart = chapterStart,
++                preferredTextChapter = textChapter
++            )
 +            val shouldUpdateHighlight = ReadAloudVisualPositioner.shouldUpdateHighlightWhenFollowPaused(
-+                readAloudParagraphVisible = readAloudParagraphVisible
++                readAloudParagraphVisible = snapshot.paragraphVisible
 +            )
 +            ReadAloudVisualTrace.record(
 +                event = "pausedHighlight",
-+                detail = "paragraphVisible=$readAloudParagraphVisible updated=$shouldUpdateHighlight targetPage=$pageIndex visual=[${binding.readView.readAloudVisualDebugState()}]"
++                detail = "paragraphVisible=${snapshot.paragraphVisible} updated=$shouldUpdateHighlight targetPage=$pageIndex visual=[${binding.readView.readAloudVisualDebugState()}]"
 +            )
-+            if (shouldUpdateHighlight) {
-+                updateReadAloudParagraphSpan(paragraph)
-+                binding.readView.curPage.invalidateContentView()
-+            }
-+            updateReadAloudVisualCenterIndicator()
++            updateReadAloudVisualCenterIndicator(
++                snapshot = snapshot,
++                refreshVisibleHighlight = shouldUpdateHighlight
++            )
 +            return
 +        }
 +
@@ -677,12 +747,39 @@ index db62d85de..b287970b8 100644
 +        }
 +    }
 +
-+    private fun updateReadAloudVisualCenterIndicator(forceTrace: Boolean = true) {
-+        val readAloudPositionVisible = readAloudPositionVisibleOnScreen()
++    private fun updateReadAloudVisualCenterIndicator(
++        forceTrace: Boolean = true,
++        snapshot: ReadAloudPresentationSnapshot = readAloudPresentationSnapshot(
++            chapterIndex = BaseReadAloudService.readAloudChapterIndex,
++            chapterStart = BaseReadAloudService.readAloudChapterStart
++        ),
++        refreshVisibleHighlight: Boolean = false
++    ) {
++        val transitionRefresh = ReadAloudVisualPositioner
++            .shouldRefreshPausedHighlightOnVisibility(
++                readAloudPlaying = BaseReadAloudService.isPlay(),
++                readAloudFollowPaused = readAloudVisualFollowPaused,
++                previousVisible = lastReadAloudPresentationVisible,
++                currentVisible = snapshot.paragraphVisible
++            )
++        if (snapshot.paragraphVisible &&
++            snapshot.paragraph != null &&
++            (refreshVisibleHighlight || transitionRefresh)
++        ) {
++            updateReadAloudParagraphSpan(snapshot.paragraph)
++            binding.readView.curPage.invalidateContentView()
++        }
++        if (transitionRefresh && !refreshVisibleHighlight) {
++            ReadAloudVisualTrace.record(
++                event = "pausedHighlightVisibleTransition",
++                detail = "position=${snapshot.chapterIndex}/${snapshot.chapterStart} visual=[${binding.readView.readAloudVisualDebugState()}]"
++            )
++        }
++        lastReadAloudPresentationVisible = snapshot.paragraphVisible
 +        val show = ReadAloudVisualPositioner.shouldShowVisualCenterIndicator(
 +            visualPositionEnabled = AppConfig.readAloudVisualPosition,
 +            readAloudPlaying = BaseReadAloudService.isPlay(),
-+            readAloudPositionVisible = readAloudPositionVisible
++            readAloudPositionVisible = snapshot.paragraphVisible
 +        )
 +        val indicatorChanged = binding.readView.setReadAloudVisualCenterIndicator(show)
 +        if (
@@ -693,7 +790,7 @@ index db62d85de..b287970b8 100644
 +        ) {
 +            ReadAloudVisualTrace.record(
 +                event = "centerIndicatorEval",
-+                detail = "show=$show visible=$readAloudPositionVisible visualPosition=${AppConfig.readAloudVisualPosition} playing=${BaseReadAloudService.isPlay()} visual=[${binding.readView.readAloudVisualDebugState()}]"
++                detail = "show=$show visible=${snapshot.paragraphVisible} position=${snapshot.chapterIndex}/${snapshot.chapterStart} visualPosition=${AppConfig.readAloudVisualPosition} playing=${BaseReadAloudService.isPlay()} visual=[${binding.readView.readAloudVisualDebugState()}]"
 +            )
 +        }
 +    }
@@ -1602,10 +1699,10 @@ index 000000000..a8e2e07d7
 +}
 diff --git a/app/src/main/java/io/legado/app/ui/book/read/page/ReadAloudVisualPositioner.kt b/app/src/main/java/io/legado/app/ui/book/read/page/ReadAloudVisualPositioner.kt
 new file mode 100644
-index 000000000..df46b92de
+index 000000000..a6415d406
 --- /dev/null
 +++ b/app/src/main/java/io/legado/app/ui/book/read/page/ReadAloudVisualPositioner.kt
-@@ -0,0 +1,356 @@
+@@ -0,0 +1,389 @@
 +package io.legado.app.ui.book.read.page
 +
 +import kotlin.math.roundToInt
@@ -1635,6 +1732,12 @@ index 000000000..df46b92de
 +        KeepVisualPage,
 +        RefreshCurrentPage,
 +        JumpToTargetPage
++    }
++
++    enum class VisualCenterChapterAction {
++        KeepCurrent,
++        AlignCached,
++        Reject
 +    }
 +
 +    fun calculateOffset(
@@ -1785,6 +1888,21 @@ index 000000000..df46b92de
 +        return visualPositionEnabled && readAloudRunning && !readAloudPositionVisible
 +    }
 +
++    fun visualCenterChapterAction(
++        currentChapterIndex: Int,
++        targetChapterIndex: Int,
++        targetChapterCached: Boolean
++    ): VisualCenterChapterAction {
++        if (currentChapterIndex == targetChapterIndex) {
++            return VisualCenterChapterAction.KeepCurrent
++        }
++        return if (targetChapterCached) {
++            VisualCenterChapterAction.AlignCached
++        } else {
++            VisualCenterChapterAction.Reject
++        }
++    }
++
 +    fun shouldShowVisualCenterIndicator(
 +        visualPositionEnabled: Boolean,
 +        readAloudPlaying: Boolean,
@@ -1820,6 +1938,18 @@ index 000000000..df46b92de
 +        readAloudParagraphVisible: Boolean
 +    ): Boolean {
 +        return readAloudParagraphVisible
++    }
++
++    fun shouldRefreshPausedHighlightOnVisibility(
++        readAloudPlaying: Boolean,
++        readAloudFollowPaused: Boolean,
++        previousVisible: Boolean?,
++        currentVisible: Boolean
++    ): Boolean {
++        return readAloudPlaying &&
++                readAloudFollowPaused &&
++                previousVisible == false &&
++                currentVisible
 +    }
 +
 +    @Suppress("UNUSED_PARAMETER")
@@ -2239,10 +2369,10 @@ index 000000000..dd48038cf
 +}
 diff --git a/app/src/test/java/io/legado/app/ui/book/read/page/ReadAloudVisualPositionerTest.kt b/app/src/test/java/io/legado/app/ui/book/read/page/ReadAloudVisualPositionerTest.kt
 new file mode 100644
-index 000000000..81fac4375
+index 000000000..b891c814e
 --- /dev/null
 +++ b/app/src/test/java/io/legado/app/ui/book/read/page/ReadAloudVisualPositionerTest.kt
-@@ -0,0 +1,962 @@
+@@ -0,0 +1,1034 @@
 +package io.legado.app.ui.book.read.page
 +
 +import org.junit.Assert.assertEquals
@@ -2681,6 +2811,30 @@ index 000000000..81fac4375
 +    }
 +
 +    @Test
++    fun visualCenterSelectionKeepsCurrentChapterWhenTargetMatches() {
++        assertEquals(
++            ReadAloudVisualPositioner.VisualCenterChapterAction.KeepCurrent,
++            ReadAloudVisualPositioner.visualCenterChapterAction(336, 336, true)
++        )
++    }
++
++    @Test
++    fun visualCenterSelectionAlignsCachedAdjacentChapterInPlace() {
++        assertEquals(
++            ReadAloudVisualPositioner.VisualCenterChapterAction.AlignCached,
++            ReadAloudVisualPositioner.visualCenterChapterAction(335, 336, true)
++        )
++    }
++
++    @Test
++    fun visualCenterSelectionRejectsMissingAdjacentChapterCache() {
++        assertEquals(
++            ReadAloudVisualPositioner.VisualCenterChapterAction.Reject,
++            ReadAloudVisualPositioner.visualCenterChapterAction(335, 336, false)
++        )
++    }
++
++    @Test
 +    fun hiddenReadAloudPositionShowsVisualCenterIndicator() {
 +        val shouldShow = ReadAloudVisualPositioner.shouldShowVisualCenterIndicator(
 +            visualPositionEnabled = true,
@@ -2748,6 +2902,54 @@ index 000000000..81fac4375
 +        )
 +
 +        assertFalse(shouldUpdate)
++    }
++
++    @Test
++    fun pausedHighlightRefreshesWhenReadAloudPositionBecomesVisible() {
++        assertTrue(
++            ReadAloudVisualPositioner.shouldRefreshPausedHighlightOnVisibility(
++                readAloudPlaying = true,
++                readAloudFollowPaused = true,
++                previousVisible = false,
++                currentVisible = true
++            )
++        )
++    }
++
++    @Test
++    fun pausedHighlightDoesNotRefreshRepeatedVisibleEvaluation() {
++        assertFalse(
++            ReadAloudVisualPositioner.shouldRefreshPausedHighlightOnVisibility(
++                readAloudPlaying = true,
++                readAloudFollowPaused = true,
++                previousVisible = true,
++                currentVisible = true
++            )
++        )
++    }
++
++    @Test
++    fun activeFollowDoesNotUsePausedVisibilityRefresh() {
++        assertFalse(
++            ReadAloudVisualPositioner.shouldRefreshPausedHighlightOnVisibility(
++                readAloudPlaying = true,
++                readAloudFollowPaused = false,
++                previousVisible = false,
++                currentVisible = true
++            )
++        )
++    }
++
++    @Test
++    fun stoppedPlaybackDoesNotUsePausedVisibilityRefresh() {
++        assertFalse(
++            ReadAloudVisualPositioner.shouldRefreshPausedHighlightOnVisibility(
++                readAloudPlaying = false,
++                readAloudFollowPaused = true,
++                previousVisible = false,
++                currentVisible = true
++            )
++        )
 +    }
 +
 +    @Test
@@ -3205,6 +3407,524 @@ index 000000000..81fac4375
 +        assertEquals(-50, offset)
 +    }
 +}
+diff --git a/docs/superpowers/plans/2026-07-14-tts-visual-state-sync.md b/docs/superpowers/plans/2026-07-14-tts-visual-state-sync.md
+new file mode 100644
+index 000000000..d055da810
+--- /dev/null
++++ b/docs/superpowers/plans/2026-07-14-tts-visual-state-sync.md
+@@ -0,0 +1,382 @@
++# TTS Visual State Synchronization Implementation Plan
++
++> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
++
++**Goal:** Preserve visual geometry during cross-chapter visual-center playback selection and keep paused-follow highlighting synchronized with indicator visibility.
++
++**Architecture:** Extend the existing pure `ReadAloudVisualPositioner` policy with two small decisions: visual-center chapter action and paused visibility-transition refresh. `ReadBookActivity` will resolve cached adjacent chapters, align read-aloud state in place, and create one immutable presentation snapshot per UI callback so highlight and indicator use the same position.
++
++**Tech Stack:** Kotlin, Android View rendering, JUnit 4, Room-independent pure policy tests, Git format-patch, GitHub Actions.
++
++## Global Constraints
++
++- Work only on `personal/3.26.12-tts`; never change `main`.
++- Do not run local JDK, SDK, NDK, Gradle, or `gradlew` commands.
++- Verification and APK packaging use only `.github/workflows/ci.yml`.
++- Do not change the 10% lower-edge repositioning rule or non-scroll animation behavior.
++- Fold source and tests into personal patch `0003`; keep exactly five functional patches.
++- Put the personal version increment in patch `0001`.
++
++---
++
++### Task 1: Add Pure Visual-State Policies
++
++**Files:**
++- Modify: `app/src/test/java/io/legado/app/ui/book/read/page/ReadAloudVisualPositionerTest.kt`
++- Modify: `app/src/main/java/io/legado/app/ui/book/read/page/ReadAloudVisualPositioner.kt`
++
++**Interfaces:**
++- Produces: `VisualCenterChapterAction { KeepCurrent, AlignCached, Reject }`
++- Produces: `visualCenterChapterAction(currentChapterIndex: Int, targetChapterIndex: Int, targetChapterCached: Boolean): VisualCenterChapterAction`
++- Produces: `shouldRefreshPausedHighlightOnVisibility(readAloudPlaying: Boolean, readAloudFollowPaused: Boolean, previousVisible: Boolean?, currentVisible: Boolean): Boolean`
++
++- [x] **Step 1: Write failing policy tests**
++
++Add these cases to `ReadAloudVisualPositionerTest`:
++
++```kotlin
++@Test
++fun visualCenterSelectionKeepsCurrentChapterWhenTargetMatches() {
++    assertEquals(
++        ReadAloudVisualPositioner.VisualCenterChapterAction.KeepCurrent,
++        ReadAloudVisualPositioner.visualCenterChapterAction(336, 336, true)
++    )
++}
++
++@Test
++fun visualCenterSelectionAlignsCachedAdjacentChapterInPlace() {
++    assertEquals(
++        ReadAloudVisualPositioner.VisualCenterChapterAction.AlignCached,
++        ReadAloudVisualPositioner.visualCenterChapterAction(335, 336, true)
++    )
++}
++
++@Test
++fun visualCenterSelectionRejectsMissingAdjacentChapterCache() {
++    assertEquals(
++        ReadAloudVisualPositioner.VisualCenterChapterAction.Reject,
++        ReadAloudVisualPositioner.visualCenterChapterAction(335, 336, false)
++    )
++}
++
++@Test
++fun pausedHighlightRefreshesWhenReadAloudPositionBecomesVisible() {
++    assertTrue(
++        ReadAloudVisualPositioner.shouldRefreshPausedHighlightOnVisibility(
++            readAloudPlaying = true,
++            readAloudFollowPaused = true,
++            previousVisible = false,
++            currentVisible = true
++        )
++    )
++}
++
++@Test
++fun pausedHighlightDoesNotRefreshRepeatedVisibleEvaluation() {
++    assertFalse(
++        ReadAloudVisualPositioner.shouldRefreshPausedHighlightOnVisibility(
++            readAloudPlaying = true,
++            readAloudFollowPaused = true,
++            previousVisible = true,
++            currentVisible = true
++        )
++    )
++}
++
++@Test
++fun activeFollowDoesNotUsePausedVisibilityRefresh() {
++    assertFalse(
++        ReadAloudVisualPositioner.shouldRefreshPausedHighlightOnVisibility(
++            readAloudPlaying = true,
++            readAloudFollowPaused = false,
++            previousVisible = false,
++            currentVisible = true
++        )
++    )
++}
++
++@Test
++fun stoppedPlaybackDoesNotUsePausedVisibilityRefresh() {
++    assertFalse(
++        ReadAloudVisualPositioner.shouldRefreshPausedHighlightOnVisibility(
++            readAloudPlaying = false,
++            readAloudFollowPaused = true,
++            previousVisible = false,
++            currentVisible = true
++        )
++    )
++}
++```
++
++- [x] **Step 2: Confirm the production symbols do not exist**
++
++Run:
++
++```powershell
++rg -n "VisualCenterChapterAction|visualCenterChapterAction|shouldRefreshPausedHighlightOnVisibility" app/src/main
++```
++
++Expected: no matches. Local test execution is prohibited by project instructions, so the final GitHub Actions run is the executable RED/GREEN verification.
++
++- [x] **Step 3: Implement the minimal pure policies**
++
++Implement the policies without Android dependencies:
++
++```kotlin
++enum class VisualCenterChapterAction {
++    KeepCurrent,
++    AlignCached,
++    Reject
++}
++
++fun visualCenterChapterAction(
++    currentChapterIndex: Int,
++    targetChapterIndex: Int,
++    targetChapterCached: Boolean
++): VisualCenterChapterAction {
++    if (currentChapterIndex == targetChapterIndex) {
++        return VisualCenterChapterAction.KeepCurrent
++    }
++    return if (targetChapterCached) {
++        VisualCenterChapterAction.AlignCached
++    } else {
++        VisualCenterChapterAction.Reject
++    }
++}
++
++fun shouldRefreshPausedHighlightOnVisibility(
++    readAloudPlaying: Boolean,
++    readAloudFollowPaused: Boolean,
++    previousVisible: Boolean?,
++    currentVisible: Boolean
++): Boolean {
++    return readAloudPlaying &&
++            readAloudFollowPaused &&
++            previousVisible == false &&
++            currentVisible
++}
++```
++
++- [x] **Step 4: Inspect tests and implementation together**
++
++Run:
++
++```powershell
++git diff --check
++rg -n "VisualCenterChapterAction|visualCenterChapterAction|shouldRefreshPausedHighlightOnVisibility" app/src/main app/src/test
++```
++
++Expected: policy definitions and all listed test cases are present; `git diff --check` reports no errors.
++
++### Task 2: Align Visual-Center Playback In Place
++
++**Files:**
++- Modify: `app/src/main/java/io/legado/app/ui/book/read/ReadBookActivity.kt`
++
++**Interfaces:**
++- Consumes: `ReadAloudVisualPositioner.visualCenterChapterAction(...)`
++- Produces: `cachedReadAloudTextChapter(chapterIndex: Int): TextChapter?`
++
++- [x] **Step 1: Resolve the visible target chapter from existing caches**
++
++Add this activity-local helper:
++
++```kotlin
++private fun cachedReadAloudTextChapter(chapterIndex: Int): TextChapter? {
++    return sequenceOf(
++        ReadBook.textChapter(-1),
++        ReadBook.textChapter(0),
++        ReadBook.textChapter(1)
++    ).filterNotNull().firstOrNull {
++        it.isCompleted && it.chapter.index == chapterIndex
++    }
++}
++```
++
++- [x] **Step 2: Replace cross-chapter `openChapter` with in-place alignment**
++
++In `readAloudFromVisualCenter`, replace the `openChapter` branch with:
++
++```kotlin
++val currentChapterIndex = ReadBook.curTextChapter?.chapter?.index
++    ?: ReadBook.durChapterIndex
++val targetChapter = cachedReadAloudTextChapter(index)
++when (ReadAloudVisualPositioner.visualCenterChapterAction(
++    currentChapterIndex = currentChapterIndex,
++    targetChapterIndex = index,
++    targetChapterCached = targetChapter != null
++)) {
++    ReadAloudVisualPositioner.VisualCenterChapterAction.KeepCurrent -> {
++        readAloudFromLineParagraphStart(line)
++    }
++
++    ReadAloudVisualPositioner.VisualCenterChapterAction.AlignCached -> {
++        targetChapter ?: return true
++        ReadBook.alignToReadAloudChapter(targetChapter, line.chapterPosition)
++        ReadAloudVisualTrace.record(
++            event = "manualStepVisualCenterChapter",
++            detail = "action=alignCached chapter=$index lineChapterPos=${line.chapterPosition}"
++        )
++        readAloudFromLineParagraphStart(line)
++    }
++
++    ReadAloudVisualPositioner.VisualCenterChapterAction.Reject -> {
++        ReadAloudVisualTrace.record(
++            event = "manualStepVisualCenterFail",
++            detail = "reason=missingCachedChapter chapter=$index lineChapterPos=${line.chapterPosition} visual=[${binding.readView.readAloudVisualDebugState()}]"
++        )
++    }
++}
++```
++
++Return `true` after the `when` so `Reject` consumes the command without stepping from the stale audio position.
++
++- [x] **Step 3: Inspect the chapter-switch path**
++
++Run:
++
++```powershell
++rg -n "readAloudFromVisualCenter|manualStepVisualCenterChapter|alignToReadAloudChapter|openChapter" app/src/main/java/io/legado/app/ui/book/read/ReadBookActivity.kt
++```
++
++Expected: the visual-center method has no `openChapter` call; unrelated restore/open paths remain unchanged.
++
++### Task 3: Synchronize Paused Highlight and Indicator
++
++**Files:**
++- Modify: `app/src/main/java/io/legado/app/ui/book/read/ReadBookActivity.kt`
++
++**Interfaces:**
++- Consumes: `ReadAloudVisualPositioner.shouldRefreshPausedHighlightOnVisibility(...)`
++- Produces: activity-local `ReadAloudPresentationSnapshot`
++- Produces: `readAloudPresentationSnapshot(chapterIndex: Int, chapterStart: Int, preferredTextChapter: TextChapter? = null): ReadAloudPresentationSnapshot`
++
++- [x] **Step 1: Add immutable snapshot and transient visibility state**
++
++Add the exact transient state:
++
++```kotlin
++private data class ReadAloudPresentationSnapshot(
++    val chapterIndex: Int,
++    val chapterStart: Int,
++    val textChapter: TextChapter?,
++    val paragraph: TextParagraph?,
++    val paragraphVisible: Boolean
++)
++
++private var lastReadAloudPresentationVisible: Boolean? = null
++```
++
++Build it with:
++
++```kotlin
++private fun readAloudPresentationSnapshot(
++    chapterIndex: Int,
++    chapterStart: Int,
++    preferredTextChapter: TextChapter? = null
++): ReadAloudPresentationSnapshot {
++    val textChapter = preferredTextChapter?.takeIf {
++        it.isCompleted && it.chapter.index == chapterIndex
++    } ?: cachedReadAloudTextChapter(chapterIndex)
++    val paragraph = textChapter?.let { findReadAloudParagraph(it, chapterStart) }
++    val paragraphVisible = textChapter != null && paragraph?.let {
++        readAloudParagraphVisibleOnScreen(textChapter, it)
++    } == true
++    return ReadAloudPresentationSnapshot(
++        chapterIndex = chapterIndex,
++        chapterStart = chapterStart,
++        textChapter = textChapter,
++        paragraph = paragraph,
++        paragraphVisible = paragraphVisible
++    )
++}
++```
++
++- [x] **Step 2: Centralize paused presentation synchronization**
++
++Extend `updateReadAloudVisualCenterIndicator` with these parameters:
++
++```kotlin
++private fun updateReadAloudVisualCenterIndicator(
++    forceTrace: Boolean = true,
++    snapshot: ReadAloudPresentationSnapshot = readAloudPresentationSnapshot(
++        chapterIndex = BaseReadAloudService.readAloudChapterIndex,
++        chapterStart = BaseReadAloudService.readAloudChapterStart
++    ),
++    refreshVisibleHighlight: Boolean = false
++)
++```
++
++Inside it, calculate `transitionRefresh` with `shouldRefreshPausedHighlightOnVisibility`. When `snapshot.paragraphVisible` and either `refreshVisibleHighlight` or `transitionRefresh` is true, call `updateReadAloudParagraphSpan(snapshot.paragraph)` and invalidate the current content view. Record `pausedHighlightVisibleTransition` only when `transitionRefresh && !refreshVisibleHighlight`. Then update `lastReadAloudPresentationVisible` and derive the indicator from `snapshot.paragraphVisible`.
++
++- [x] **Step 3: Route paused TTS progress through the snapshot**
++
++In the paused branch of `updateReadAloudVisual`, use:
++
++```kotlin
++val snapshot = readAloudPresentationSnapshot(
++    chapterIndex = textChapter.chapter.index,
++    chapterStart = chapterStart,
++    preferredTextChapter = textChapter
++)
++ReadAloudVisualTrace.record(
++    event = "pausedHighlight",
++    detail = "paragraphVisible=${snapshot.paragraphVisible} updated=${snapshot.paragraphVisible} targetPage=$pageIndex visual=[${binding.readView.readAloudVisualDebugState()}]"
++)
++updateReadAloudVisualCenterIndicator(
++    snapshot = snapshot,
++    refreshVisibleHighlight = true
++)
++return
++```
++
++- [x] **Step 4: Inspect state reads and formatting**
++
++Run:
++
++```powershell
++git diff --check
++rg -n "ReadAloudPresentationSnapshot|lastReadAloudPresentationVisible|pausedHighlightVisibleTransition|refreshVisibleHighlight" app/src/main/java/io/legado/app/ui/book/read/ReadBookActivity.kt
++```
++
++Expected: paused progress and indicator synchronization share one snapshot, and visibility-transition refresh is not performed on every scroll frame.
++
++### Task 4: Version, Patch Stack, and CI
++
++**Files:**
++- Modify: `app/version.properties`
++- Modify: `patches/personal/3.26.12/0001-Set-up-personal-APK-build-workflow.patch`
++- Modify: `patches/personal/3.26.12/0003-Refine-TTS-visual-follow-and-highlighting.patch`
++- Regenerate: all five files under `patches/personal/3.26.12/`
++
++**Interfaces:**
++- Produces: version `3.26.12.7-noR8`
++- Produces: exactly five patches applicable with `git am -3` from `upstream/3.26.12`
++
++- [x] **Step 1: Increment the personal version**
++
++Change `VERSION_PERSONAL=6` to `VERSION_PERSONAL=7`.
++
++- [ ] **Step 2: Review and commit the source change**
++
++Run non-Android checks:
++
++```powershell
++git diff --check
++git status --short
++git diff --stat
++```
++
++Commit the implementation as one TTS visual-state fix commit.
++
++- [ ] **Step 3: Re-export the five functional patches**
++
++Rebuild the patch stack from `upstream/3.26.12`, folding version/workflow content into `0001` and all visual-state source/tests into `0003`. Do not add `0006`.
++
++- [ ] **Step 4: Validate patch application without Android tools**
++
++Apply the final five patches with `git am -3` in a temporary detached worktree rooted at `upstream/3.26.12`. Compare affected source, test, version, and workflow files with the personal branch and run `git diff --check` on source files.
++
++- [ ] **Step 5: Push and monitor the single workflow**
++
++Push `personal/3.26.12-tts`. Confirm the triggered `.github/workflows/ci.yml` run and monitor it at 15-minute intervals. On success, report the versioned unsigned arm64 artifact name and ID.
+diff --git a/docs/superpowers/specs/2026-07-14-tts-visual-state-sync-design.md b/docs/superpowers/specs/2026-07-14-tts-visual-state-sync-design.md
+new file mode 100644
+index 000000000..1153f78ee
+--- /dev/null
++++ b/docs/superpowers/specs/2026-07-14-tts-visual-state-sync-design.md
+@@ -0,0 +1,124 @@
++# TTS Visual State Synchronization Design
++
++## Context
++
++The `3.26.12.6` trace shows two remaining failures in the read-aloud visual flow:
++
++1. Selecting the visual-center paragraph in an adjacent chapter calls `ReadBook.openChapter`. That resets the rendered page and emits a normal page-change signal, which marks visual following as paused. The selected paragraph moves from the screen center to the chapter top, and subsequent TTS progress no longer follows.
++2. While visual following is paused, TTS progress updates the highlight only when the paragraph is visible at that instant. If the user later scrolls the current paragraph into view, the center indicator is updated but the highlight remains stale until the next TTS progress event.
++
++The previous materialized-anchor fix remains valid. The new work must not change the 10% lower-edge repositioning rule or introduce another chronological patch.
++
++## Goals
++
++- Preserve the current rendered geometry when visual-center selection crosses into an already cached adjacent chapter.
++- Treat the resulting chapter alignment as a read-aloud operation, not as a user page change.
++- Synchronize paused-follow highlight and center-indicator decisions from one immutable read-aloud position snapshot.
++- Refresh the highlight once when scrolling changes the current read-aloud position from invisible to visible.
++- Keep the change inside the existing TTS visual-follow feature boundary and fold it into personal patch `0003`.
++
++## Non-Goals
++
++- No change to the TTS service's paragraph stepping rules.
++- No change to non-scroll page animation modes.
++- No change to the 10% safe-edge calculation.
++- No new global coordinator, Flow, or persisted state.
++- No local Android toolchain verification.
++
++## Design
++
++### 1. In-place visual-center chapter alignment
++
++When the visual-center line belongs to a different chapter, resolve that chapter from `ReadBook`'s current, previous, and next completed chapter cache. Because the line is already visible, its chapter must normally be present in this cache.
++
++For a cached target chapter:
++
++1. Keep `ContentTextView.textPage`, `pageOffset`, and the continuous rendered stream unchanged.
++2. Call `ReadBook.alignToReadAloudChapter` with the cached target chapter and selected line position.
++3. Start reading from the selected paragraph through the existing `readAloudFromLineParagraphStart` path.
++4. Let the next TTS progress event activate normal paragraph following. Since the target paragraph is already visible, offset calculation keeps the text at its current position.
++
++If the cached chapter cannot be resolved, trace the violated invariant and leave playback unchanged. Do not fall back to `openChapter`, because that would reintroduce the page reset and false user-page-change behavior this design removes.
++
++### 2. One paused-follow presentation snapshot
++
++Add an activity-local immutable snapshot containing:
++
++- read-aloud chapter index;
++- read-aloud chapter position;
++- matching completed cached `TextChapter`, when available;
++- resolved paragraph, when available;
++- whether that paragraph is currently visible.
++
++Both paused-follow highlighting and center-indicator evaluation use this same snapshot during one UI callback. They must not independently reread mutable `BaseReadAloudService` fields.
++
++### 3. Visibility-transition highlight refresh
++
++Track only the last evaluated visibility as activity-local transient state. When all of the following are true, refresh the paragraph span and invalidate the content view once:
++
++- read-aloud playback is active;
++- visual following is paused;
++- the previous snapshot was invisible;
++- the current snapshot is visible;
++- the current paragraph can be resolved.
++
++This transition check prevents highlight work on every scroll frame. Normal TTS progress continues to update visible highlights as before.
++
++The center indicator is derived from the same current snapshot. This removes the interval where the indicator disappears because the latest service position is visible while the highlight still represents an older progress event.
++
++## Invariants
++
++- Audio position remains owned by `BaseReadAloudService`.
++- `ReadBook` alignment may change for a read-aloud command without forcing the rendered page to reset.
++- User scrolling may pause visual following but never changes the audio position by itself.
++- With visual positioning enabled, a hidden center indicator during paused following means the visible current read-aloud paragraph has a current highlight span.
++- Virtual follow offsets are materialized only by the existing anchor materialization code.
++- A target chapter/page anchor is written to `ReadBook` only after exact chapter and page materialization.
++
++## Alternatives Considered
++
++### Patch the two symptoms independently
++
++Suppressing `pageChanged` around `openChapter` and refreshing the highlight when the indicator hides would be smaller. It would still reset the visual stream at chapter boundaries and would keep two independent reads of mutable service state. Rejected because it preserves the underlying race and chapter-top jump.
++
++### Introduce a full presentation-state coordinator
++
++A dedicated StateFlow-backed coordinator could make audio, reading progress, rendering, and highlighting explicit state machines. This is a larger migration across the activity, service, and page renderer. It is unsuitable for the maintained `3.26.12` release branch and is not required for the confirmed failures.
++
++The selected design uses one activity-local snapshot data class and one transition policy. It adds no cross-module layer, allocation-heavy scroll-frame stream, or persisted compatibility state.
++
++## Acceptance Checklist
++
++- Visual-center selection in a cached adjacent chapter does not call `openChapter`.
++- The selected paragraph keeps its pre-command screen position until the normal lower-edge rule requires movement.
++- Programmatic read-aloud alignment does not set visual following to paused.
++- Paused-follow highlight and indicator decisions use the same chapter/position snapshot per callback.
++- An invisible-to-visible transition refreshes the current highlight exactly once.
++- Existing anchor materialization and lower-edge positioning tests remain unchanged and passing.
++- No new fallback path, sixth personal patch, local Android build, or change to `main` is introduced.
++
++## Expected Edit Footprint
++
++The implementation should touch the activity's read-aloud visual helpers, the existing pure visual-position policy and tests, the personal version property, and the functional patch archive. Future changes to visibility-transition policy should require edits only to the policy, its tests, and the activity call site.
++
++## Validation
++
++Pure unit tests will cover:
++
++- an invisible-to-visible transition refreshes a paused-follow highlight;
++- repeated visible evaluations do not refresh again;
++- active following and stopped playback do not use the paused-follow refresh path;
++- a cached adjacent chapter is eligible for in-place visual-center alignment.
++
++GitHub Actions `.github/workflows/ci.yml` is the only build and test path. Device verification should reproduce these sequences:
++
++1. Scroll until the visual center is in the next chapter, press previous/next paragraph, and verify that text does not jump to the chapter top and following remains active.
++2. Scroll away from the active paragraph, wait for progress, then scroll it back into view and verify that the indicator disappears together with the correct highlight.
++3. Repeat normal lower-edge paragraph transitions and confirm that repositioning still occurs only when the paragraph bottom enters the lower 10% region.
++
++## Patch and Version Handling
++
++- Fold source and test changes into `patches/personal/3.26.12/0003-*`.
++- Keep the functional patch count at five.
++- Put the personal version increment in `0001`.
++- Push only `personal/3.26.12-tts`; do not change `main`.
 -- 
 2.33.0.windows.2
 

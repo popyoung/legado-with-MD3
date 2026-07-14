@@ -1,4 +1,4 @@
-From c7a6b618123d2e769ac69c047c238c075bbe5a0e Mon Sep 17 00:00:00 2001
+From 25b424c97d9a1cae32167049c80e985d83e7f7e3 Mon Sep 17 00:00:00 2001
 From: popyoung <popyoung@users.noreply.github.com>
 Date: Wed, 8 Jul 2026 00:00:00 +0800
 Subject: [PATCH 4/5] Add TTS visual position controls

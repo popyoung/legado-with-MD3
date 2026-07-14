@@ -1,4 +1,4 @@
-From e324295d89fabb91c893a346bb8d56008b49a5cd Mon Sep 17 00:00:00 2001
+From ff7b891964705b04cd8e6042a31ef674c04e2e93 Mon Sep 17 00:00:00 2001
 From: popyoung <popyoung@users.noreply.github.com>
 Date: Wed, 8 Jul 2026 00:00:00 +0800
 Subject: [PATCH 5/5] Add TTS visual diagnostics export
