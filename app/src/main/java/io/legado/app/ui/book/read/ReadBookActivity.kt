@@ -1608,7 +1608,9 @@ class ReadBookActivity : BaseReadBookActivity(),
         )
         val currentChapterIndex = ReadBook.curTextChapter?.chapter?.index
             ?: ReadBook.durChapterIndex
-        val targetChapter = cachedReadAloudTextChapter(index)
+        val targetChapter = line.textPage.getTextChapter().takeIf {
+            it.isCompleted && it.chapter.index == index
+        }
         when (ReadAloudVisualPositioner.visualCenterChapterAction(
             currentChapterIndex = currentChapterIndex,
             targetChapterIndex = index,
