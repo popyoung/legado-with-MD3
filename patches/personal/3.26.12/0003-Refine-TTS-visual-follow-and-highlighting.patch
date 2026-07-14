@@ -1,10 +1,10 @@
-From 358726ee7b67be9fda9995cc2ad9e2eac79f5c22 Mon Sep 17 00:00:00 2001
+From 63b3bba8039be4d8eb87a4592012acc9adc2e05f Mon Sep 17 00:00:00 2001
 From: popyoung <popyoung@users.noreply.github.com>
 Date: Thu, 9 Jul 2026 00:00:00 +0800
 Subject: [PATCH 3/5] Refine TTS visual follow and highlighting
 
 ---
- .../app/ui/book/read/ReadBookActivity.kt      |  710 ++++++++++-
+ .../app/ui/book/read/ReadBookActivity.kt      |  712 +++++++++++-
  .../app/ui/book/read/page/ContentTextView.kt  |  561 ++++++++-
  .../legado/app/ui/book/read/page/PageView.kt  |   46 +-
  .../page/ReadAloudParagraphHighlighter.kt     |   49 +
@@ -17,7 +17,7 @@ Subject: [PATCH 3/5] Refine TTS visual follow and highlighting
  .../page/ReadAloudVisualPositionerTest.kt     | 1034 +++++++++++++++++
  .../plans/2026-07-14-tts-visual-state-sync.md |  382 ++++++
  ...2026-07-14-tts-visual-state-sync-design.md |  124 ++
- 13 files changed, 3397 insertions(+), 71 deletions(-)
+ 13 files changed, 3399 insertions(+), 71 deletions(-)
  create mode 100644 app/src/main/java/io/legado/app/ui/book/read/page/ReadAloudParagraphHighlighter.kt
  create mode 100644 app/src/main/java/io/legado/app/ui/book/read/page/ReadAloudVisualPositioner.kt
  create mode 100644 app/src/test/java/io/legado/app/ui/book/read/page/ReadAloudParagraphHighlighterTest.kt
@@ -26,7 +26,7 @@ Subject: [PATCH 3/5] Refine TTS visual follow and highlighting
  create mode 100644 docs/superpowers/specs/2026-07-14-tts-visual-state-sync-design.md
 
 diff --git a/app/src/main/java/io/legado/app/ui/book/read/ReadBookActivity.kt b/app/src/main/java/io/legado/app/ui/book/read/ReadBookActivity.kt
-index db62d85de..963ea4a33 100644
+index db62d85de..54385c75c 100644
 --- a/app/src/main/java/io/legado/app/ui/book/read/ReadBookActivity.kt
 +++ b/app/src/main/java/io/legado/app/ui/book/read/ReadBookActivity.kt
 @@ -57,6 +57,7 @@ import io.legado.app.lib.dialogs.SelectItem
@@ -171,7 +171,7 @@ index db62d85de..963ea4a33 100644
                          }
                      } else {
                          ReadBook.readAloud()
-@@ -1496,36 +1544,424 @@ class ReadBookActivity : BaseReadBookActivity(),
+@@ -1496,36 +1544,426 @@ class ReadBookActivity : BaseReadBookActivity(),
              }
  
              BaseReadAloudService.pause -> {
@@ -251,7 +251,9 @@ index db62d85de..963ea4a33 100644
 +        )
 +        val currentChapterIndex = ReadBook.curTextChapter?.chapter?.index
 +            ?: ReadBook.durChapterIndex
-+        val targetChapter = cachedReadAloudTextChapter(index)
++        val targetChapter = line.textPage.getTextChapter().takeIf {
++            it.isCompleted && it.chapter.index == index
++        }
 +        when (ReadAloudVisualPositioner.visualCenterChapterAction(
 +            currentChapterIndex = currentChapterIndex,
 +            targetChapterIndex = index,
@@ -613,7 +615,7 @@ index db62d85de..963ea4a33 100644
      /**
       * 点击图片
       */
-@@ -1904,25 +2340,29 @@ class ReadBookActivity : BaseReadBookActivity(),
+@@ -1904,25 +2342,29 @@ class ReadBookActivity : BaseReadBookActivity(),
              }
          }
          observeEvent<Int>(EventBus.ALOUD_STATE) {
@@ -656,7 +658,7 @@ index db62d85de..963ea4a33 100644
                      }
                  }
              }
-@@ -1954,6 +2394,202 @@ class ReadBookActivity : BaseReadBookActivity(),
+@@ -1954,6 +2396,202 @@ class ReadBookActivity : BaseReadBookActivity(),
          }
      }
  
