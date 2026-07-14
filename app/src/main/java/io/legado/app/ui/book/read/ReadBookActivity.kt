@@ -287,6 +287,7 @@ class ReadBookActivity : BaseReadBookActivity(),
     private var readAloudRestoreSerial = 0
     private var readAloudRestoreLoadingSerial = 0
     private var readAloudHighlightedPages = emptySet<ReadAloudParagraphHighlighter.HighlightedPage>()
+    private var lastReadAloudPresentationVisible: Boolean? = null
     private val handler by lazy { buildMainHandler() }
     private val screenOffRunnable by lazy { Runnable { keepScreenOn(false) } }
     private val executor = ReadBook.executor
@@ -301,6 +302,14 @@ class ReadBookActivity : BaseReadBookActivity(),
         BackNavigation(true),
         ResumePlayback(true)
     }
+
+    private data class ReadAloudPresentationSnapshot(
+        val chapterIndex: Int,
+        val chapterStart: Int,
+        val textChapter: TextChapter?,
+        val paragraph: TextParagraph?,
+        val paragraphVisible: Boolean
+    )
 
     //恢复跳转前进度对话框的交互结果
     private var confirmRestoreProcess: Boolean? = null
@@ -1593,19 +1602,73 @@ class ReadBookActivity : BaseReadBookActivity(),
             return false
         }
         val (index, line) = pos
-        readAloudVisualFollowPaused = false
         ReadAloudVisualTrace.record(
             event = "manualStepVisualCenter",
             detail = "chapter=$index lineChapterPos=${line.chapterPosition} linePagePos=${line.pagePosition} paragraph=${line.paragraphNum} visual=[${binding.readView.readAloudVisualDebugState()}]"
         )
-        if (ReadBook.durChapterIndex != index) {
-            ReadBook.openChapter(index, line.chapterPosition, false) {
+        val currentChapterIndex = ReadBook.curTextChapter?.chapter?.index
+            ?: ReadBook.durChapterIndex
+        val targetChapter = cachedReadAloudTextChapter(index)
+        when (ReadAloudVisualPositioner.visualCenterChapterAction(
+            currentChapterIndex = currentChapterIndex,
+            targetChapterIndex = index,
+            targetChapterCached = targetChapter != null
+        )) {
+            ReadAloudVisualPositioner.VisualCenterChapterAction.KeepCurrent -> {
+                readAloudVisualFollowPaused = false
                 readAloudFromLineParagraphStart(line)
             }
-        } else {
-            readAloudFromLineParagraphStart(line)
+
+            ReadAloudVisualPositioner.VisualCenterChapterAction.AlignCached -> {
+                targetChapter ?: return true
+                readAloudVisualFollowPaused = false
+                ReadBook.alignToReadAloudChapter(targetChapter, line.chapterPosition)
+                ReadAloudVisualTrace.record(
+                    event = "manualStepVisualCenterChapter",
+                    detail = "action=alignCached chapter=$index lineChapterPos=${line.chapterPosition}"
+                )
+                readAloudFromLineParagraphStart(line)
+            }
+
+            ReadAloudVisualPositioner.VisualCenterChapterAction.Reject -> {
+                ReadAloudVisualTrace.record(
+                    event = "manualStepVisualCenterFail",
+                    detail = "reason=missingCachedChapter chapter=$index lineChapterPos=${line.chapterPosition} visual=[${binding.readView.readAloudVisualDebugState()}]"
+                )
+            }
         }
         return true
+    }
+
+    private fun cachedReadAloudTextChapter(chapterIndex: Int): TextChapter? {
+        return sequenceOf(
+            ReadBook.textChapter(-1),
+            ReadBook.textChapter(0),
+            ReadBook.textChapter(1)
+        ).filterNotNull().firstOrNull {
+            it.isCompleted && it.chapter.index == chapterIndex
+        }
+    }
+
+    private fun readAloudPresentationSnapshot(
+        chapterIndex: Int,
+        chapterStart: Int,
+        preferredTextChapter: TextChapter? = null
+    ): ReadAloudPresentationSnapshot {
+        val textChapter = preferredTextChapter?.takeIf {
+            it.isCompleted && it.chapter.index == chapterIndex
+        } ?: cachedReadAloudTextChapter(chapterIndex)
+        val paragraph = textChapter?.let { findReadAloudParagraph(it, chapterStart) }
+        val paragraphVisible = textChapter != null && paragraph?.let {
+            readAloudParagraphVisibleOnScreen(textChapter, it)
+        } == true
+        return ReadAloudPresentationSnapshot(
+            chapterIndex = chapterIndex,
+            chapterStart = chapterStart,
+            textChapter = textChapter,
+            paragraph = paragraph,
+            paragraphVisible = paragraphVisible
+        )
     }
 
     private fun readAloudPositionVisibleOnScreen(): Boolean {
@@ -2352,19 +2415,22 @@ class ReadBookActivity : BaseReadBookActivity(),
             detail = "chapterStart=$chapterStart read=${BaseReadAloudService.readAloudChapterIndex}/${BaseReadAloudService.readAloudChapterStart} textChapter=${textChapter.chapter.index} targetPage=$pageIndex dur=${ReadBook.durChapterIndex}/${ReadBook.durPageIndex}/${ReadBook.durChapterPos} paused=$readAloudVisualFollowPaused visual=[${binding.readView.readAloudVisualDebugState()}]"
         )
         if (readAloudVisualFollowPaused) {
-            val readAloudParagraphVisible = readAloudParagraphVisibleOnScreen(textChapter, paragraph)
+            val snapshot = readAloudPresentationSnapshot(
+                chapterIndex = textChapter.chapter.index,
+                chapterStart = chapterStart,
+                preferredTextChapter = textChapter
+            )
             val shouldUpdateHighlight = ReadAloudVisualPositioner.shouldUpdateHighlightWhenFollowPaused(
-                readAloudParagraphVisible = readAloudParagraphVisible
+                readAloudParagraphVisible = snapshot.paragraphVisible
             )
             ReadAloudVisualTrace.record(
                 event = "pausedHighlight",
-                detail = "paragraphVisible=$readAloudParagraphVisible updated=$shouldUpdateHighlight targetPage=$pageIndex visual=[${binding.readView.readAloudVisualDebugState()}]"
+                detail = "paragraphVisible=${snapshot.paragraphVisible} updated=$shouldUpdateHighlight targetPage=$pageIndex visual=[${binding.readView.readAloudVisualDebugState()}]"
             )
-            if (shouldUpdateHighlight) {
-                updateReadAloudParagraphSpan(paragraph)
-                binding.readView.curPage.invalidateContentView()
-            }
-            updateReadAloudVisualCenterIndicator()
+            updateReadAloudVisualCenterIndicator(
+                snapshot = snapshot,
+                refreshVisibleHighlight = shouldUpdateHighlight
+            )
             return
         }
 
@@ -2415,12 +2481,39 @@ class ReadBookActivity : BaseReadBookActivity(),
         }
     }
 
-    private fun updateReadAloudVisualCenterIndicator(forceTrace: Boolean = true) {
-        val readAloudPositionVisible = readAloudPositionVisibleOnScreen()
+    private fun updateReadAloudVisualCenterIndicator(
+        forceTrace: Boolean = true,
+        snapshot: ReadAloudPresentationSnapshot = readAloudPresentationSnapshot(
+            chapterIndex = BaseReadAloudService.readAloudChapterIndex,
+            chapterStart = BaseReadAloudService.readAloudChapterStart
+        ),
+        refreshVisibleHighlight: Boolean = false
+    ) {
+        val transitionRefresh = ReadAloudVisualPositioner
+            .shouldRefreshPausedHighlightOnVisibility(
+                readAloudPlaying = BaseReadAloudService.isPlay(),
+                readAloudFollowPaused = readAloudVisualFollowPaused,
+                previousVisible = lastReadAloudPresentationVisible,
+                currentVisible = snapshot.paragraphVisible
+            )
+        if (snapshot.paragraphVisible &&
+            snapshot.paragraph != null &&
+            (refreshVisibleHighlight || transitionRefresh)
+        ) {
+            updateReadAloudParagraphSpan(snapshot.paragraph)
+            binding.readView.curPage.invalidateContentView()
+        }
+        if (transitionRefresh && !refreshVisibleHighlight) {
+            ReadAloudVisualTrace.record(
+                event = "pausedHighlightVisibleTransition",
+                detail = "position=${snapshot.chapterIndex}/${snapshot.chapterStart} visual=[${binding.readView.readAloudVisualDebugState()}]"
+            )
+        }
+        lastReadAloudPresentationVisible = snapshot.paragraphVisible
         val show = ReadAloudVisualPositioner.shouldShowVisualCenterIndicator(
             visualPositionEnabled = AppConfig.readAloudVisualPosition,
             readAloudPlaying = BaseReadAloudService.isPlay(),
-            readAloudPositionVisible = readAloudPositionVisible
+            readAloudPositionVisible = snapshot.paragraphVisible
         )
         val indicatorChanged = binding.readView.setReadAloudVisualCenterIndicator(show)
         if (
@@ -2431,7 +2524,7 @@ class ReadBookActivity : BaseReadBookActivity(),
         ) {
             ReadAloudVisualTrace.record(
                 event = "centerIndicatorEval",
-                detail = "show=$show visible=$readAloudPositionVisible visualPosition=${AppConfig.readAloudVisualPosition} playing=${BaseReadAloudService.isPlay()} visual=[${binding.readView.readAloudVisualDebugState()}]"
+                detail = "show=$show visible=${snapshot.paragraphVisible} position=${snapshot.chapterIndex}/${snapshot.chapterStart} visualPosition=${AppConfig.readAloudVisualPosition} playing=${BaseReadAloudService.isPlay()} visual=[${binding.readView.readAloudVisualDebugState()}]"
             )
         }
     }

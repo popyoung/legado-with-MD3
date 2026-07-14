@@ -436,6 +436,30 @@ class ReadAloudVisualPositionerTest {
     }
 
     @Test
+    fun visualCenterSelectionKeepsCurrentChapterWhenTargetMatches() {
+        assertEquals(
+            ReadAloudVisualPositioner.VisualCenterChapterAction.KeepCurrent,
+            ReadAloudVisualPositioner.visualCenterChapterAction(336, 336, true)
+        )
+    }
+
+    @Test
+    fun visualCenterSelectionAlignsCachedAdjacentChapterInPlace() {
+        assertEquals(
+            ReadAloudVisualPositioner.VisualCenterChapterAction.AlignCached,
+            ReadAloudVisualPositioner.visualCenterChapterAction(335, 336, true)
+        )
+    }
+
+    @Test
+    fun visualCenterSelectionRejectsMissingAdjacentChapterCache() {
+        assertEquals(
+            ReadAloudVisualPositioner.VisualCenterChapterAction.Reject,
+            ReadAloudVisualPositioner.visualCenterChapterAction(335, 336, false)
+        )
+    }
+
+    @Test
     fun hiddenReadAloudPositionShowsVisualCenterIndicator() {
         val shouldShow = ReadAloudVisualPositioner.shouldShowVisualCenterIndicator(
             visualPositionEnabled = true,
@@ -503,6 +527,54 @@ class ReadAloudVisualPositionerTest {
         )
 
         assertFalse(shouldUpdate)
+    }
+
+    @Test
+    fun pausedHighlightRefreshesWhenReadAloudPositionBecomesVisible() {
+        assertTrue(
+            ReadAloudVisualPositioner.shouldRefreshPausedHighlightOnVisibility(
+                readAloudPlaying = true,
+                readAloudFollowPaused = true,
+                previousVisible = false,
+                currentVisible = true
+            )
+        )
+    }
+
+    @Test
+    fun pausedHighlightDoesNotRefreshRepeatedVisibleEvaluation() {
+        assertFalse(
+            ReadAloudVisualPositioner.shouldRefreshPausedHighlightOnVisibility(
+                readAloudPlaying = true,
+                readAloudFollowPaused = true,
+                previousVisible = true,
+                currentVisible = true
+            )
+        )
+    }
+
+    @Test
+    fun activeFollowDoesNotUsePausedVisibilityRefresh() {
+        assertFalse(
+            ReadAloudVisualPositioner.shouldRefreshPausedHighlightOnVisibility(
+                readAloudPlaying = true,
+                readAloudFollowPaused = false,
+                previousVisible = false,
+                currentVisible = true
+            )
+        )
+    }
+
+    @Test
+    fun stoppedPlaybackDoesNotUsePausedVisibilityRefresh() {
+        assertFalse(
+            ReadAloudVisualPositioner.shouldRefreshPausedHighlightOnVisibility(
+                readAloudPlaying = false,
+                readAloudFollowPaused = true,
+                previousVisible = false,
+                currentVisible = true
+            )
+        )
     }
 
     @Test

@@ -29,6 +29,12 @@ internal object ReadAloudVisualPositioner {
         JumpToTargetPage
     }
 
+    enum class VisualCenterChapterAction {
+        KeepCurrent,
+        AlignCached,
+        Reject
+    }
+
     fun calculateOffset(
         paragraphTop: Float,
         paragraphBottom: Float,
@@ -177,6 +183,21 @@ internal object ReadAloudVisualPositioner {
         return visualPositionEnabled && readAloudRunning && !readAloudPositionVisible
     }
 
+    fun visualCenterChapterAction(
+        currentChapterIndex: Int,
+        targetChapterIndex: Int,
+        targetChapterCached: Boolean
+    ): VisualCenterChapterAction {
+        if (currentChapterIndex == targetChapterIndex) {
+            return VisualCenterChapterAction.KeepCurrent
+        }
+        return if (targetChapterCached) {
+            VisualCenterChapterAction.AlignCached
+        } else {
+            VisualCenterChapterAction.Reject
+        }
+    }
+
     fun shouldShowVisualCenterIndicator(
         visualPositionEnabled: Boolean,
         readAloudPlaying: Boolean,
@@ -212,6 +233,18 @@ internal object ReadAloudVisualPositioner {
         readAloudParagraphVisible: Boolean
     ): Boolean {
         return readAloudParagraphVisible
+    }
+
+    fun shouldRefreshPausedHighlightOnVisibility(
+        readAloudPlaying: Boolean,
+        readAloudFollowPaused: Boolean,
+        previousVisible: Boolean?,
+        currentVisible: Boolean
+    ): Boolean {
+        return readAloudPlaying &&
+                readAloudFollowPaused &&
+                previousVisible == false &&
+                currentVisible
     }
 
     @Suppress("UNUSED_PARAMETER")
