@@ -1,32 +1,36 @@
-From 63b3bba8039be4d8eb87a4592012acc9adc2e05f Mon Sep 17 00:00:00 2001
+From 90ec020ea8edd54fd26f1768a9972ed0aca48c8d Mon Sep 17 00:00:00 2001
 From: popyoung <popyoung@users.noreply.github.com>
 Date: Thu, 9 Jul 2026 00:00:00 +0800
 Subject: [PATCH 3/5] Refine TTS visual follow and highlighting
 
 ---
- .../app/ui/book/read/ReadBookActivity.kt      |  712 +++++++++++-
- .../app/ui/book/read/page/ContentTextView.kt  |  561 ++++++++-
+ .../app/ui/book/read/ReadBookActivity.kt      |  712 ++++++++++-
+ .../app/ui/book/read/page/ContentTextView.kt  |  570 ++++++++-
  .../legado/app/ui/book/read/page/PageView.kt  |   46 +-
  .../page/ReadAloudParagraphHighlighter.kt     |   49 +
- .../read/page/ReadAloudVisualPositioner.kt    |  389 +++++++
+ .../read/page/ReadAloudVisualPositioner.kt    |  404 ++++++
  .../legado/app/ui/book/read/page/ReadView.kt  |   49 +-
  .../ui/book/read/page/entities/TextLine.kt    |   11 +-
  .../ui/book/read/page/entities/TextPage.kt    |   15 +-
  .../read/page/provider/TextPageFactory.kt     |    3 +
  .../page/ReadAloudParagraphHighlighterTest.kt |   95 ++
- .../page/ReadAloudVisualPositionerTest.kt     | 1034 +++++++++++++++++
+ .../page/ReadAloudVisualPositionerTest.kt     | 1078 +++++++++++++++++
  .../plans/2026-07-14-tts-visual-state-sync.md |  382 ++++++
+ ...-07-25-tts-visual-state-contract-repair.md |  134 ++
  ...2026-07-14-tts-visual-state-sync-design.md |  124 ++
- 13 files changed, 3399 insertions(+), 71 deletions(-)
+ ...tts-visual-state-contract-repair-design.md |   77 ++
+ 15 files changed, 3678 insertions(+), 71 deletions(-)
  create mode 100644 app/src/main/java/io/legado/app/ui/book/read/page/ReadAloudParagraphHighlighter.kt
  create mode 100644 app/src/main/java/io/legado/app/ui/book/read/page/ReadAloudVisualPositioner.kt
  create mode 100644 app/src/test/java/io/legado/app/ui/book/read/page/ReadAloudParagraphHighlighterTest.kt
  create mode 100644 app/src/test/java/io/legado/app/ui/book/read/page/ReadAloudVisualPositionerTest.kt
  create mode 100644 docs/superpowers/plans/2026-07-14-tts-visual-state-sync.md
+ create mode 100644 docs/superpowers/plans/2026-07-25-tts-visual-state-contract-repair.md
  create mode 100644 docs/superpowers/specs/2026-07-14-tts-visual-state-sync-design.md
+ create mode 100644 docs/superpowers/specs/2026-07-25-tts-visual-state-contract-repair-design.md
 
 diff --git a/app/src/main/java/io/legado/app/ui/book/read/ReadBookActivity.kt b/app/src/main/java/io/legado/app/ui/book/read/ReadBookActivity.kt
-index db62d85de..54385c75c 100644
+index db62d85de..c3a09a5d5 100644
 --- a/app/src/main/java/io/legado/app/ui/book/read/ReadBookActivity.kt
 +++ b/app/src/main/java/io/legado/app/ui/book/read/ReadBookActivity.kt
 @@ -57,6 +57,7 @@ import io.legado.app.lib.dialogs.SelectItem
@@ -319,10 +323,10 @@ index db62d85de..54385c75c 100644
 +    private fun readAloudPositionVisibleOnScreen(): Boolean {
 +        val chapterIndex = BaseReadAloudService.readAloudChapterIndex
 +        if (chapterIndex < 0) return true
-+        return binding.readView.containsVisibleChapterPosition(
++        return readAloudPresentationSnapshot(
 +            chapterIndex = chapterIndex,
-+            chapterPosition = BaseReadAloudService.readAloudChapterStart
-+        )
++            chapterStart = BaseReadAloudService.readAloudChapterStart
++        ).paragraphVisible
 +    }
 +
 +    private fun restoreReadAloudVisualPosition(
@@ -518,8 +522,8 @@ index db62d85de..54385c75c 100644
 +                        event = "restoreVisualResult",
 +                        detail = "reason=${restoreReason.name} action=followVisible follow=true page=$pageIndex visual=[${binding.readView.readAloudVisualDebugState()}]"
 +                    )
-+                }
-+            }
+                 }
+             }
 +            return
 +        }
 +        val initialEffectiveOffset = paragraph?.let {
@@ -542,7 +546,8 @@ index db62d85de..54385c75c 100644
 +            }
 +        )
 +    }
-+
+ 
+-            else -> ReadAloud.pause(this)
 +    private fun jumpToReadAloudPage(
 +        textChapter: TextChapter,
 +        pageIndex: Int,
@@ -565,12 +570,11 @@ index db62d85de..54385c75c 100644
 +                }
 +                if (isCurrent()) {
 +                    afterJump()
-                 }
-             }
-+        }
-+    }
++                }
++            }
+         }
+     }
  
--            else -> ReadAloud.pause(this)
 +    private fun readAloudFromLineParagraphStart(line: TextLine) {
 +        val textChapter = ReadBook.curTextChapter ?: run {
 +            ReadAloudVisualTrace.record(
@@ -589,7 +593,7 @@ index db62d85de..54385c75c 100644
 +            )
 +            ReadBook.readAloud(startPos = line.pagePosition)
 +            return
-         }
++        }
 +        val pageIndex = paragraph.firstLine.textPage.index
 +        val startPos = paragraph.chapterPosition - textChapter.getReadLength(pageIndex)
 +        ReadBook.durChapterPos = paragraph.chapterPosition
@@ -598,8 +602,8 @@ index db62d85de..54385c75c 100644
 +            detail = "chapter=${textChapter.chapter.index} page=$pageIndex startPos=$startPos paragraph=${paragraph.chapterPosition}-${paragraph.chapterIndices.last} line=${line.chapterPosition}/${line.pagePosition}"
 +        )
 +        ReadBook.readAloud(pageIndex = pageIndex, startPos = startPos.coerceAtLeast(0))
-     }
- 
++    }
++
      override fun showHelp() {
          showHelp("readMenuHelp")
      }
@@ -862,7 +866,7 @@ index db62d85de..54385c75c 100644
          val keepLightPrefer = getPrefString(PreferKey.keepLight)?.toInt() ?: 0
          screenTimeOut = keepLightPrefer * 1000L
 diff --git a/app/src/main/java/io/legado/app/ui/book/read/page/ContentTextView.kt b/app/src/main/java/io/legado/app/ui/book/read/page/ContentTextView.kt
-index 855aac3be..93c5ed8e7 100644
+index 855aac3be..50d20f949 100644
 --- a/app/src/main/java/io/legado/app/ui/book/read/page/ContentTextView.kt
 +++ b/app/src/main/java/io/legado/app/ui/book/read/page/ContentTextView.kt
 @@ -2,7 +2,9 @@ package io.legado.app.ui.book.read.page
@@ -1108,7 +1112,7 @@ index 855aac3be..93c5ed8e7 100644
              ) {
                  invalidate = true
              }
-@@ -209,7 +361,294 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
+@@ -209,7 +361,303 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
       * 重置滚动位置
       */
      fun resetPageOffset() {
@@ -1183,12 +1187,21 @@ index 855aac3be..93c5ed8e7 100644
 +            )
 +            return false
 +        }
++        val currentEffectiveOffset = contentOffset(0)
++        val targetIsCurrentPage = firstLine.textPage.chapterIndex == textPage.chapterIndex &&
++                firstLine.textPage.index == textPage.index
++        // Positive placement can belong to the previous page; do not carry it onto this page.
++        val baseOffset = ReadAloudVisualPositioner.resolveFollowBaseOffset(
++            currentOffset = currentEffectiveOffset,
++            initialEffectiveOffset = initialEffectiveOffset,
++            targetIsCurrentPage = targetIsCurrentPage
++        )
 +        val effectiveOffset = ReadAloudVisualPositioner.calculateOffset(
 +            paragraphTop = paragraphTop,
 +            paragraphBottom = paragraphBottom,
 +            visibleTop = ChapterProvider.paddingTop.toFloat(),
 +            visibleHeight = ChapterProvider.visibleHeight.toFloat(),
-+            currentOffset = initialEffectiveOffset?.toFloat() ?: contentOffset(0)
++            currentOffset = baseOffset
 +        )
 +        readAloudPageOffset = effectiveOffset - pageOffset
 +        readAloudFollowActive = true
@@ -1201,7 +1214,7 @@ index 855aac3be..93c5ed8e7 100644
 +        )
 +        ReadAloudVisualTrace.record(
 +            event = "follow",
-+            detail = "target=${firstLine.textPage.chapterIndex}/${firstLine.textPage.index} paragraph=${paragraph.chapterPosition}-${paragraph.chapterIndices.last} top=$paragraphTop bottom=$paragraphBottom initial=$initialEffectiveOffset effective=$effectiveOffset pageShift=$pageShift ${readAloudVisualDebugState()}"
++            detail = "target=${firstLine.textPage.chapterIndex}/${firstLine.textPage.index} paragraph=${paragraph.chapterPosition}-${paragraph.chapterIndices.last} top=$paragraphTop bottom=$paragraphBottom initial=$initialEffectiveOffset base=$baseOffset effective=$effectiveOffset pageShift=$pageShift ${readAloudVisualDebugState()}"
 +        )
 +        postInvalidate()
 +        return true
@@ -1404,7 +1417,7 @@ index 855aac3be..93c5ed8e7 100644
      }
  
      /**
-@@ -402,7 +841,7 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
+@@ -402,7 +850,7 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
          if (!visibleRect.contains(x, y)) return
          var relativeOffset: Float
          for (relativePos in 0..2) {
@@ -1413,7 +1426,7 @@ index 855aac3be..93c5ed8e7 100644
              if (relativePos > 0) {
                  //滚动翻页
                  if (!callBack.isScroll) return
-@@ -445,7 +884,7 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
+@@ -445,7 +893,7 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
      ) {
          var relativeOffset: Float
          for (relativePos in 0..2) {
@@ -1422,7 +1435,7 @@ index 855aac3be..93c5ed8e7 100644
              if (relativePos > 0) {
                  //滚动翻页
                  if (!callBack.isScroll) return
-@@ -494,7 +933,7 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
+@@ -494,7 +942,7 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
          val visiblePage = TextPage()
          var relativeOffset: Float
          for (relativePos in 0..2) {
@@ -1431,7 +1444,7 @@ index 855aac3be..93c5ed8e7 100644
              if (relativePos > 0) {
                  //滚动翻页
                  if (!callBack.isScroll) break
-@@ -518,8 +957,8 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
+@@ -518,8 +966,8 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
  
      fun getReadAloudPos(): Pair<Int, TextLine>? {
          var relativeOffset: Float
@@ -1442,7 +1455,7 @@ index 855aac3be..93c5ed8e7 100644
              if (relativePos > 0) {
                  //滚动翻页
                  if (!callBack.isScroll) break
-@@ -541,6 +980,80 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
+@@ -541,6 +989,80 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
          return null
      }
  
@@ -1523,7 +1536,7 @@ index 855aac3be..93c5ed8e7 100644
      /**
       * 选择开始文字
       */
-@@ -718,19 +1231,19 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
+@@ -718,19 +1240,19 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
      }
  
      private fun relativeOffset(relativePos: Int): Float {
@@ -1553,7 +1566,7 @@ index 855aac3be..93c5ed8e7 100644
      }
  
      fun setAutoPager(autoPager: AutoPager?) {
-@@ -766,6 +1279,7 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
+@@ -766,6 +1288,7 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
                  Thread(it, "TextPageRender")
              }
          }
@@ -1561,7 +1574,7 @@ index 855aac3be..93c5ed8e7 100644
          private val cursorWidth = 24.dpToPx()
      }
  
-@@ -783,5 +1297,6 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
+@@ -783,5 +1306,6 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
          fun onLongScreenshotTouchEvent(event: MotionEvent): Boolean
          fun oldClickImg(src: String): Boolean
          fun clickImg(click: String, src: String)
@@ -1701,10 +1714,10 @@ index 000000000..a8e2e07d7
 +}
 diff --git a/app/src/main/java/io/legado/app/ui/book/read/page/ReadAloudVisualPositioner.kt b/app/src/main/java/io/legado/app/ui/book/read/page/ReadAloudVisualPositioner.kt
 new file mode 100644
-index 000000000..a6415d406
+index 000000000..2b25afd37
 --- /dev/null
 +++ b/app/src/main/java/io/legado/app/ui/book/read/page/ReadAloudVisualPositioner.kt
-@@ -0,0 +1,389 @@
+@@ -0,0 +1,404 @@
 +package io.legado.app.ui.book.read.page
 +
 +import kotlin.math.roundToInt
@@ -1764,6 +1777,21 @@ index 000000000..a6415d406
 +            currentTop < visibleTop -> (safeTop - paragraphTop).roundToInt()
 +            currentBottom >= safeBottom -> (safeTop - paragraphTop).roundToInt()
 +            else -> currentOffset.roundToInt()
++        }
++    }
++
++    fun resolveFollowBaseOffset(
++        currentOffset: Float,
++        initialEffectiveOffset: Int?,
++        targetIsCurrentPage: Boolean
++    ): Float {
++        if (initialEffectiveOffset != null) {
++            return initialEffectiveOffset.toFloat()
++        }
++        return if (targetIsCurrentPage && currentOffset > 0f) {
++            0f
++        } else {
++            currentOffset
 +        }
 +    }
 +
@@ -2371,10 +2399,10 @@ index 000000000..dd48038cf
 +}
 diff --git a/app/src/test/java/io/legado/app/ui/book/read/page/ReadAloudVisualPositionerTest.kt b/app/src/test/java/io/legado/app/ui/book/read/page/ReadAloudVisualPositionerTest.kt
 new file mode 100644
-index 000000000..b891c814e
+index 000000000..ac994f09e
 --- /dev/null
 +++ b/app/src/test/java/io/legado/app/ui/book/read/page/ReadAloudVisualPositionerTest.kt
-@@ -0,0 +1,1034 @@
+@@ -0,0 +1,1078 @@
 +package io.legado.app.ui.book.read.page
 +
 +import org.junit.Assert.assertEquals
@@ -3408,6 +3436,50 @@ index 000000000..b891c814e
 +
 +        assertEquals(-50, offset)
 +    }
++
++    @Test
++    fun explicitChapterBoundaryOffsetOverridesInheritedOffset() {
++        val offset = ReadAloudVisualPositioner.resolveFollowBaseOffset(
++            currentOffset = 613f,
++            initialEffectiveOffset = 280,
++            targetIsCurrentPage = true
++        )
++
++        assertEquals(280f, offset)
++    }
++
++    @Test
++    fun currentPageTargetDropsInheritedPositiveOffset() {
++        val offset = ReadAloudVisualPositioner.resolveFollowBaseOffset(
++            currentOffset = 613f,
++            initialEffectiveOffset = null,
++            targetIsCurrentPage = true
++        )
++
++        assertEquals(0f, offset)
++    }
++
++    @Test
++    fun previousPageTargetKeepsPositiveOffset() {
++        val offset = ReadAloudVisualPositioner.resolveFollowBaseOffset(
++            currentOffset = 613f,
++            initialEffectiveOffset = null,
++            targetIsCurrentPage = false
++        )
++
++        assertEquals(613f, offset)
++    }
++
++    @Test
++    fun currentPageTargetKeepsNonPositiveOffset() {
++        val offset = ReadAloudVisualPositioner.resolveFollowBaseOffset(
++            currentOffset = -320f,
++            initialEffectiveOffset = null,
++            targetIsCurrentPage = true
++        )
++
++        assertEquals(-320f, offset)
++    }
 +}
 diff --git a/docs/superpowers/plans/2026-07-14-tts-visual-state-sync.md b/docs/superpowers/plans/2026-07-14-tts-visual-state-sync.md
 new file mode 100644
@@ -3797,6 +3869,146 @@ index 000000000..d055da810
 +- [ ] **Step 5: Push and monitor the single workflow**
 +
 +Push `personal/3.26.12-tts`. Confirm the triggered `.github/workflows/ci.yml` run and monitor it at 15-minute intervals. On success, report the versioned unsigned arm64 artifact name and ID.
+diff --git a/docs/superpowers/plans/2026-07-25-tts-visual-state-contract-repair.md b/docs/superpowers/plans/2026-07-25-tts-visual-state-contract-repair.md
+new file mode 100644
+index 000000000..a18a41a31
+--- /dev/null
++++ b/docs/superpowers/plans/2026-07-25-tts-visual-state-contract-repair.md
+@@ -0,0 +1,134 @@
++# TTS Visual State Contract Repair Implementation Plan
++
++> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
++
++**Goal:** Repair source identity, visibility, inherited-offset, and scroll-trace failures demonstrated by the July read-aloud logs.
++
++**Architecture:** Keep visual policy in `ReadAloudVisualPositioner`, rendered-page discovery in `ContentTextView`, and playback orchestration in `ReadBookActivity`. Preserve the five functional personal patches and avoid new caches or compatibility paths.
++
++**Tech Stack:** Kotlin, Android View rendering, JUnit 4, Git format-patch, GitHub Actions.
++
++## Global Constraints
++
++- Keep the safe-edge ratio at 10 percent.
++- Do not change non-scroll page animation behavior.
++- Do not run local JDK, SDK, NDK, Gradle, or `gradlew`.
++- Use only `.github/workflows/ci.yml` for verification and packaging.
++- Produce only `arm64-v8a` noR8 unsigned APK output.
++- Keep exactly five functional patches.
++
++---
++
++### Task 1: Policy Regression Coverage
++
++**Files:**
++- Modify: `app/src/test/java/io/legado/app/ui/book/read/page/ReadAloudVisualPositionerTest.kt`
++- Modify: `app/src/main/java/io/legado/app/ui/book/read/page/ReadAloudVisualPositioner.kt`
++
++**Interfaces:**
++- Produces: `resolveFollowBaseOffset(currentOffset, initialEffectiveOffset, targetIsCurrentPage): Float`
++- Produces: `shouldHandleScrollFrame(mOffset): Boolean`
++- Produces: `shouldTraceScrollState(followInterrupted, pageChanged): Boolean`
++
++- [x] **Step 1: Add failing policy tests**
++
++Cover explicit chapter-boundary offsets, inherited positive offsets on the
++current page, positive offsets for previous-page targets, zero scroll frames,
++and semantic scroll trace transitions.
++
++- [x] **Step 2: Confirm the tests reference missing policy methods**
++
++Use source inspection only. The user requires a single final CI run, so the
++otherwise mandatory RED Gradle execution is intentionally deferred.
++
++- [x] **Step 3: Implement the minimal policy methods**
++
++The offset resolver must prefer an explicit offset, normalize only inherited
++positive offsets for current-page targets, and preserve all other offsets.
++
++- [x] **Step 4: Inspect policy call sites**
++
++Use `rg` to confirm the new methods are called only from the intended follow
++and scroll paths.
++
++### Task 2: Source-preserving Selection and Unified Visibility
++
++**Files:**
++- Modify: `app/src/main/java/io/legado/app/ui/book/read/page/ContentTextView.kt`
++- Modify: `app/src/main/java/io/legado/app/ui/book/read/page/PageView.kt`
++- Modify: `app/src/main/java/io/legado/app/ui/book/read/page/ReadView.kt`
++- Modify: `app/src/main/java/io/legado/app/ui/book/read/ReadBookActivity.kt`
++
++**Interfaces:**
++- `getReadAloudPos(): Pair<TextPage, TextLine>?`
++- `getReadAloudCenterPos(): Pair<TextPage, TextLine>?`
++
++- [x] **Step 1: Preserve the source page in visible-line return values**
++
++Return the actual rendered `TextPage` as the first pair element while retaining
++the screen-adjusted copied line as the second element.
++
++- [x] **Step 2: Consume the source page in playback entry points**
++
++Use `page.chapterIndex` and `page.getTextChapter()` for normal playback start
++and visual-center chapter alignment.
++
++- [x] **Step 3: Unify playback visibility**
++
++Implement `readAloudPositionVisibleOnScreen()` through
++`readAloudPresentationSnapshot(...).paragraphVisible`; remove the exact
++single-character visibility decision from activity control flow.
++
++### Task 3: Follow Offset and Scroll Hot Path
++
++**Files:**
++- Modify: `app/src/main/java/io/legado/app/ui/book/read/page/ContentTextView.kt`
++- Modify: `app/src/main/java/io/legado/app/ui/book/read/ReadBookActivity.kt`
++
++**Interfaces:**
++- Consumes: policy methods from Task 1.
++
++- [x] **Step 1: Resolve the follow base offset before positioning**
++
++Compare the target paragraph's first page with the current rendered page and
++normalize only stale inherited positive offsets.
++
++- [x] **Step 2: Filter and summarize scroll events**
++
++Return immediately for `mOffset == 0`. Record full state only when follow is
++interrupted or chapter/page identity changes.
++
++- [x] **Step 3: Debounce viewport presentation refresh**
++
++Pause visual follow once, coalesce repeated callbacks, update the indicator and
++paused highlight after the viewport settles, and record one final snapshot.
++
++### Task 4: Version, Patch Stack, and CI
++
++**Files:**
++- Modify: `app/version.properties`
++- Regenerate: `patches/personal/3.26.12/0001-*.patch`
++- Regenerate: `patches/personal/3.26.12/0003-*.patch`
++- Regenerate: `patches/personal/3.26.12/0004-*.patch`
++- Regenerate: `patches/personal/3.26.12/0005-*.patch`
++
++- [x] **Step 1: Set `VERSION_PERSONAL=8`**
++
++- [ ] **Step 2: Run non-Android verification**
++
++Run `git diff --check`, focused static searches, patch count checks, and inspect
++the complete diff.
++
++- [ ] **Step 3: Rebuild the five functional patches**
++
++Fold each changed file into its owning functional patch; do not add `0006`.
++
++- [ ] **Step 4: Validate patch application**
++
++Apply the five patches with `git am -3` to a temporary worktree based on
++`upstream/3.26.12`, compare affected files, and run `git diff --check`.
++
++- [ ] **Step 5: Push once and monitor CI**
++
++Push `personal/3.26.12-tts`. The push triggers the sole workflow; inspect it at
++15-minute intervals and report its artifact name and ID.
 diff --git a/docs/superpowers/specs/2026-07-14-tts-visual-state-sync-design.md b/docs/superpowers/specs/2026-07-14-tts-visual-state-sync-design.md
 new file mode 100644
 index 000000000..1153f78ee
@@ -3927,6 +4139,89 @@ index 000000000..1153f78ee
 +- Keep the functional patch count at five.
 +- Put the personal version increment in `0001`.
 +- Push only `personal/3.26.12-tts`; do not change `main`.
+diff --git a/docs/superpowers/specs/2026-07-25-tts-visual-state-contract-repair-design.md b/docs/superpowers/specs/2026-07-25-tts-visual-state-contract-repair-design.md
+new file mode 100644
+index 000000000..bf3afe602
+--- /dev/null
++++ b/docs/superpowers/specs/2026-07-25-tts-visual-state-contract-repair-design.md
+@@ -0,0 +1,77 @@
++# TTS Visual State Contract Repair Design
++
++## Goal
++
++Repair the visual-position failures proven by the July 17-25 read-aloud
++traces without adding another chronological patch or changing non-scroll page
++animation behavior.
++
++## Confirmed Failures
++
++1. A copied center `TextLine` loses its source `TextPage`, so visual-center
++   manual navigation cannot align an adjacent rendered chapter.
++2. Manual navigation checks the exact playback character while the indicator
++   and highlight check the complete playback paragraph. The two answers can
++   disagree for the same frame.
++3. Following a paragraph on the previous chapter can leave a positive effective
++   offset on the current chapter. Returning to the current page then preserves
++   that inherited offset and leaves a large blank area above the text.
++4. Every scroll frame records a full visual snapshot and recalculates
++   presentation state, including zero-distance frames.
++
++## Design
++
++### Source-preserving visual selection
++
++`ContentTextView` will return the actual rendered `TextPage` together with the
++screen-adjusted copied `TextLine`. The copied line remains suitable for
++paragraph-position calculations, while the original page supplies the
++authoritative chapter and page identity. `ReadBookActivity` must not recover
++chapter identity from `TextLine.textPage`.
++
++No new cache or registry is needed. A `Pair<TextPage, TextLine>` is sufficient
++and keeps the existing call chain through `PageView` and `ReadView`.
++
++### One visibility contract
++
++All activity decisions that ask whether the playback position is on screen
++will use `ReadAloudPresentationSnapshot.paragraphVisible`. A paragraph is
++visible when at least one of its rendered lines is visible. Manual previous or
++next navigation, the center indicator, paused highlighting, foreground restore,
++and back-navigation behavior will therefore use the same answer.
++
++### Follow-offset ownership
++
++An explicitly supplied chapter-boundary offset remains authoritative. Without
++an explicit offset, a positive effective offset is considered inherited
++previous-page placement when the new target paragraph belongs to the current
++rendered page. That inherited value is normalized to zero before applying the
++normal 10-percent positioning rule. Targets that still belong to the previous
++rendered page keep the positive offset.
++
++### Bounded scroll diagnostics
++
++Zero-distance scroll frames will perform no TTS visual work. Non-zero frames
++may interrupt follow immediately, but expensive visibility evaluation is
++debounced until the viewport settles. Full trace snapshots are recorded only
++when follow is interrupted, the rendered page changes, or the viewport settles.
++The existing five-minute and 5,000-event export bounds remain unchanged.
++
++## Patch Ownership
++
++- `0003`: unified visibility and inherited follow-offset normalization.
++- `0004`: source-preserving visual-center/manual navigation.
++- `0005`: bounded scroll diagnostics.
++- `0001`: version `3.26.12.8-noR8`.
++
++The archive remains exactly five functional patches.
++
++## Verification
++
++- Add pure policy tests for inherited-offset normalization and scroll-frame
++  filtering before production changes.
++- Use static searches and `git diff --check` locally.
++- Do not run local Android, Gradle, JDK, SDK, or NDK commands.
++- Apply all five exported patches to a temporary worktree based on
++  `upstream/3.26.12` and compare the affected files.
++- Push once and use only `.github/workflows/ci.yml` for tests and APK packaging.
 -- 
 2.33.0.windows.2
 

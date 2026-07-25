@@ -1,4 +1,4 @@
-From 45db52b459f9f5f335ebe4b55492e9f59ee87e94 Mon Sep 17 00:00:00 2001
+From f73481e8389272c119c555b06329bf1ca71d04b2 Mon Sep 17 00:00:00 2001
 From: popyoung <popyoung@users.noreply.github.com>
 Date: Wed, 8 Jul 2026 00:00:00 +0800
 Subject: [PATCH 2/5] Add TTS playback state and progress helpers

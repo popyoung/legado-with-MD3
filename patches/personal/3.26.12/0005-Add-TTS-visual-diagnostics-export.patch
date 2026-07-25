@@ -1,13 +1,157 @@
-From eb37318ad44e39bc371dc8bfb88367eb48a3a506 Mon Sep 17 00:00:00 2001
+From 992f167853cda3daf413f43f641a08404395785e Mon Sep 17 00:00:00 2001
 From: popyoung <popyoung@users.noreply.github.com>
 Date: Wed, 8 Jul 2026 00:00:00 +0800
 Subject: [PATCH 5/5] Add TTS visual diagnostics export
 
 ---
+ .../app/ui/book/read/ReadBookActivity.kt      |  19 ++-
+ .../app/ui/book/read/page/ContentTextView.kt  |  24 ++--
+ .../read/page/ReadAloudVisualPositioner.kt    |  11 ++
  .../ui/book/read/page/ReadAloudVisualTrace.kt | 126 ++++++++++++++++++
- 1 file changed, 126 insertions(+)
+ .../page/ReadAloudVisualPositionerTest.kt     |  40 ++++++
+ 5 files changed, 210 insertions(+), 10 deletions(-)
  create mode 100644 app/src/main/java/io/legado/app/ui/book/read/page/ReadAloudVisualTrace.kt
 
+diff --git a/app/src/main/java/io/legado/app/ui/book/read/ReadBookActivity.kt b/app/src/main/java/io/legado/app/ui/book/read/ReadBookActivity.kt
+index 62e0d6abf..522de8b3c 100644
+--- a/app/src/main/java/io/legado/app/ui/book/read/ReadBookActivity.kt
++++ b/app/src/main/java/io/legado/app/ui/book/read/ReadBookActivity.kt
+@@ -289,6 +289,14 @@ class ReadBookActivity : BaseReadBookActivity(),
+     private var readAloudHighlightedPages = emptySet<ReadAloudParagraphHighlighter.HighlightedPage>()
+     private var lastReadAloudPresentationVisible: Boolean? = null
+     private val handler by lazy { buildMainHandler() }
++    private val readAloudVisualViewportSettledRunnable = Runnable {
++        if (!BaseReadAloudService.isRun) return@Runnable
++        updateReadAloudVisualCenterIndicator(forceTrace = false)
++        ReadAloudVisualTrace.record(
++            event = "scrollSettled",
++            detail = "paused=$readAloudVisualFollowPaused read=${BaseReadAloudService.readAloudChapterIndex}/${BaseReadAloudService.readAloudChapterStart} visual=[${binding.readView.readAloudVisualDebugState()}]"
++        )
++    }
+     private val screenOffRunnable by lazy { Runnable { keepScreenOn(false) } }
+     private val executor = ReadBook.executor
+     private val upSeekBarThrottle = throttle(200) {
+@@ -1959,11 +1967,16 @@ class ReadBookActivity : BaseReadBookActivity(),
+     }
+ 
+     override fun onReadAloudVisualFollowInterrupted() {
+-        if (BaseReadAloudService.isPlay()) {
++        if (!BaseReadAloudService.isRun) return
++        if (BaseReadAloudService.isPlay() && !readAloudVisualFollowPaused) {
+             readAloudVisualFollowPaused = true
+             cancelReadAloudVisualRestore()
+         }
+-        updateReadAloudVisualCenterIndicator(forceTrace = false)
++        handler.removeCallbacks(readAloudVisualViewportSettledRunnable)
++        handler.postDelayed(
++            readAloudVisualViewportSettledRunnable,
++            READ_ALOUD_VISUAL_VIEWPORT_SETTLE_MS
++        )
+     }
+ 
+     /**
+@@ -2299,6 +2312,7 @@ class ReadBookActivity : BaseReadBookActivity(),
+     }
+ 
+     override fun onDestroy() {
++        handler.removeCallbacks(readAloudVisualViewportSettledRunnable)
+         super.onDestroy()
+         tts?.clearTts()
+         textActionMenu.dismiss()
+@@ -2628,6 +2642,7 @@ class ReadBookActivity : BaseReadBookActivity(),
+ 
+     companion object {
+         const val RESULT_DELETED = 100
++        private const val READ_ALOUD_VISUAL_VIEWPORT_SETTLE_MS = 80L
+     }
+ 
+ }
+diff --git a/app/src/main/java/io/legado/app/ui/book/read/page/ContentTextView.kt b/app/src/main/java/io/legado/app/ui/book/read/page/ContentTextView.kt
+index 302f4443e..a7575ceaf 100644
+--- a/app/src/main/java/io/legado/app/ui/book/read/page/ContentTextView.kt
++++ b/app/src/main/java/io/legado/app/ui/book/read/page/ContentTextView.kt
+@@ -275,7 +275,9 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
+      * pageOffset + textPage.height 为 textPage 下方的高度
+      */
+     fun scroll(mOffset: Int) {
+-        val beforeState = readAloudVisualDebugState()
++        if (!ReadAloudVisualPositioner.shouldHandleScrollFrame(mOffset)) return
++        val beforeChapterIndex = textPage.chapterIndex
++        val beforePageIndex = textPage.index
+         if (ReadAloudVisualPositioner.shouldSuppressScrollAfterVisualRestore(
+                 readAloudFollowActive = readAloudFollowActive,
+                 nowMillis = SystemClock.uptimeMillis(),
+@@ -284,12 +286,12 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
+         ) {
+             ReadAloudVisualTrace.record(
+                 event = "scrollSuppressedAfterRestore",
+-                detail = "mOffset=$mOffset before=[$beforeState]"
++                detail = "mOffset=$mOffset ${readAloudVisualDebugState()}"
+             )
+             postInvalidate()
+             return
+         }
+-        resetReadAloudFollowByUserScroll()
++        val followInterrupted = resetReadAloudFollowByUserScroll()
+         pageOffset += mOffset
+         if (longScreenshot) {
+             scrollY += -mOffset
+@@ -320,10 +322,14 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
+                 pageDelegate?.abortAnim()
+             }
+         }
+-        ReadAloudVisualTrace.record(
+-            event = "scroll",
+-            detail = "mOffset=$mOffset before=[$beforeState] after=[${readAloudVisualDebugState()}]"
+-        )
++        val pageChanged = beforeChapterIndex != textPage.chapterIndex ||
++                beforePageIndex != textPage.index
++        if (ReadAloudVisualPositioner.shouldTraceScrollState(followInterrupted, pageChanged)) {
++            ReadAloudVisualTrace.record(
++                event = "scrollState",
++                detail = "mOffset=$mOffset interrupted=$followInterrupted from=$beforeChapterIndex/$beforePageIndex ${readAloudVisualDebugState()}"
++            )
++        }
+         callBack.onReadAloudVisualFollowInterrupted()
+         postInvalidate()
+     }
+@@ -500,11 +506,13 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
+         return callBack.isScroll || readAloudFollowActive
+     }
+ 
+-    private fun resetReadAloudFollowByUserScroll() {
++    private fun resetReadAloudFollowByUserScroll(): Boolean {
++        val hadFollowState = readAloudFollowActive || readAloudPageOffset != 0
+         materializeReadAloudFollow(
+             event = "interruptFollowByScroll",
+             syncVisualAnchor = true
+         )
++        return hadFollowState
+     }
+ 
+     private fun materializeReadAloudFollow(
+diff --git a/app/src/main/java/io/legado/app/ui/book/read/page/ReadAloudVisualPositioner.kt b/app/src/main/java/io/legado/app/ui/book/read/page/ReadAloudVisualPositioner.kt
+index 2b25afd37..2167ea015 100644
+--- a/app/src/main/java/io/legado/app/ui/book/read/page/ReadAloudVisualPositioner.kt
++++ b/app/src/main/java/io/legado/app/ui/book/read/page/ReadAloudVisualPositioner.kt
+@@ -182,6 +182,17 @@ internal object ReadAloudVisualPositioner {
+         return forceTrace || indicatorChanged
+     }
+ 
++    fun shouldHandleScrollFrame(mOffset: Int): Boolean {
++        return mOffset != 0
++    }
++
++    fun shouldTraceScrollState(
++        followInterrupted: Boolean,
++        pageChanged: Boolean
++    ): Boolean {
++        return followInterrupted || pageChanged
++    }
++
+     fun contentOffset(
+         pageOffset: Float,
+         readAloudOffset: Float,
 diff --git a/app/src/main/java/io/legado/app/ui/book/read/page/ReadAloudVisualTrace.kt b/app/src/main/java/io/legado/app/ui/book/read/page/ReadAloudVisualTrace.kt
 new file mode 100644
 index 000000000..bb243170e
@@ -140,6 +284,55 @@ index 000000000..bb243170e
 +        }
 +    }
 +}
+diff --git a/app/src/test/java/io/legado/app/ui/book/read/page/ReadAloudVisualPositionerTest.kt b/app/src/test/java/io/legado/app/ui/book/read/page/ReadAloudVisualPositionerTest.kt
+index ac994f09e..dc328a376 100644
+--- a/app/src/test/java/io/legado/app/ui/book/read/page/ReadAloudVisualPositionerTest.kt
++++ b/app/src/test/java/io/legado/app/ui/book/read/page/ReadAloudVisualPositionerTest.kt
+@@ -1075,4 +1075,44 @@ class ReadAloudVisualPositionerTest {
+ 
+         assertEquals(-320f, offset)
+     }
++
++    @Test
++    fun zeroDistanceScrollFrameIsIgnored() {
++        assertFalse(ReadAloudVisualPositioner.shouldHandleScrollFrame(0))
++    }
++
++    @Test
++    fun nonZeroScrollFrameIsHandled() {
++        assertTrue(ReadAloudVisualPositioner.shouldHandleScrollFrame(-12))
++    }
++
++    @Test
++    fun scrollTraceRecordsFollowInterruption() {
++        assertTrue(
++            ReadAloudVisualPositioner.shouldTraceScrollState(
++                followInterrupted = true,
++                pageChanged = false
++            )
++        )
++    }
++
++    @Test
++    fun scrollTraceRecordsRenderedPageChange() {
++        assertTrue(
++            ReadAloudVisualPositioner.shouldTraceScrollState(
++                followInterrupted = false,
++                pageChanged = true
++            )
++        )
++    }
++
++    @Test
++    fun scrollTraceSkipsOrdinaryAnimationFrame() {
++        assertFalse(
++            ReadAloudVisualPositioner.shouldTraceScrollState(
++                followInterrupted = false,
++                pageChanged = false
++            )
++        )
++    }
+ }
 -- 
 2.33.0.windows.2
 

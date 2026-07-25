@@ -1,19 +1,23 @@
-From 4a0def1765210f8e6354427de850504823dbad19 Mon Sep 17 00:00:00 2001
+From d96b40e61f4c1e1a2b2bae3ac018211ae116e975 Mon Sep 17 00:00:00 2001
 From: popyoung <popyoung@users.noreply.github.com>
 Date: Wed, 8 Jul 2026 00:00:00 +0800
 Subject: [PATCH 4/5] Add TTS visual position controls
 
 ---
- .../main/java/io/legado/app/constant/PreferKey.kt   |  1 +
- .../java/io/legado/app/help/config/AppConfig.kt     |  3 +++
- .../ui/book/read/config/ReadAloudConfigDialog.kt    |  9 +++++++++
- .../app/ui/book/read/config/ReadAloudDialog.kt      |  8 +++++---
- app/src/main/res/values-zh-rCN/strings.xml          |  2 ++
- app/src/main/res/values-zh-rHK/strings.xml          |  2 ++
- app/src/main/res/values-zh-rTW/strings.xml          |  2 ++
- app/src/main/res/values/strings.xml                 |  4 ++++
- app/src/main/res/xml/pref_config_aloud.xml          | 13 +++++++++++++
- 9 files changed, 41 insertions(+), 3 deletions(-)
+ .../java/io/legado/app/constant/PreferKey.kt  |  1 +
+ .../io/legado/app/help/config/AppConfig.kt    |  3 +++
+ .../app/ui/book/read/ReadBookActivity.kt      |  8 ++++---
+ .../book/read/config/ReadAloudConfigDialog.kt |  9 ++++++++
+ .../ui/book/read/config/ReadAloudDialog.kt    |  8 ++++---
+ .../app/ui/book/read/page/ContentTextView.kt  | 23 ++++++++-----------
+ .../legado/app/ui/book/read/page/PageView.kt  |  4 ++--
+ .../legado/app/ui/book/read/page/ReadView.kt  |  4 ++--
+ app/src/main/res/values-zh-rCN/strings.xml    |  2 ++
+ app/src/main/res/values-zh-rHK/strings.xml    |  2 ++
+ app/src/main/res/values-zh-rTW/strings.xml    |  2 ++
+ app/src/main/res/values/strings.xml           |  4 ++++
+ app/src/main/res/xml/pref_config_aloud.xml    | 13 +++++++++++
+ 13 files changed, 59 insertions(+), 24 deletions(-)
 
 diff --git a/app/src/main/java/io/legado/app/constant/PreferKey.kt b/app/src/main/java/io/legado/app/constant/PreferKey.kt
 index 050a0fb05..f70e1e602 100644
@@ -41,6 +45,38 @@ index 8476d4395..7a7cd1cc7 100644
      const val defaultSpeechRate = 5
  
      var ttsSpeechRate: Int
+diff --git a/app/src/main/java/io/legado/app/ui/book/read/ReadBookActivity.kt b/app/src/main/java/io/legado/app/ui/book/read/ReadBookActivity.kt
+index c3a09a5d5..62e0d6abf 100644
+--- a/app/src/main/java/io/legado/app/ui/book/read/ReadBookActivity.kt
++++ b/app/src/main/java/io/legado/app/ui/book/read/ReadBookActivity.kt
+@@ -1527,7 +1527,8 @@ class ReadBookActivity : BaseReadBookActivity(),
+                 if (scrollPageAnim) {
+                     val pos = binding.readView.getReadAloudPos()
+                     if (pos != null) {
+-                        val (index, line) = pos
++                        val (page, line) = pos
++                        val index = page.chapterIndex
+                         if (ReadBook.durChapterIndex != index) {
+                             ReadBook.openChapter(index, line.chapterPosition, false) {
+                                 readAloudFromLineParagraphStart(line)
+@@ -1601,14 +1602,15 @@ class ReadBookActivity : BaseReadBookActivity(),
+             )
+             return false
+         }
+-        val (index, line) = pos
++        val (page, line) = pos
++        val index = page.chapterIndex
+         ReadAloudVisualTrace.record(
+             event = "manualStepVisualCenter",
+             detail = "chapter=$index lineChapterPos=${line.chapterPosition} linePagePos=${line.pagePosition} paragraph=${line.paragraphNum} visual=[${binding.readView.readAloudVisualDebugState()}]"
+         )
+         val currentChapterIndex = ReadBook.curTextChapter?.chapter?.index
+             ?: ReadBook.durChapterIndex
+-        val targetChapter = line.textPage.getTextChapter().takeIf {
++        val targetChapter = page.getTextChapter().takeIf {
+             it.isCompleted && it.chapter.index == index
+         }
+         when (ReadAloudVisualPositioner.visualCenterChapterAction(
 diff --git a/app/src/main/java/io/legado/app/ui/book/read/config/ReadAloudConfigDialog.kt b/app/src/main/java/io/legado/app/ui/book/read/config/ReadAloudConfigDialog.kt
 index 8d15ab380..30d7fc410 100644
 --- a/app/src/main/java/io/legado/app/ui/book/read/config/ReadAloudConfigDialog.kt
@@ -101,6 +137,112 @@ index 631765bb2..b6f55687f 100644
 -}
 \ No newline at end of file
 +}
+diff --git a/app/src/main/java/io/legado/app/ui/book/read/page/ContentTextView.kt b/app/src/main/java/io/legado/app/ui/book/read/page/ContentTextView.kt
+index 50d20f949..302f4443e 100644
+--- a/app/src/main/java/io/legado/app/ui/book/read/page/ContentTextView.kt
++++ b/app/src/main/java/io/legado/app/ui/book/read/page/ContentTextView.kt
+@@ -535,15 +535,10 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
+     }
+ 
+     private fun readAloudVisibleAnchor(): ReadAloudVisualPositioner.PageAnchor? {
+-        val (chapterIndex, line) = getReadAloudPos() ?: return null
+-        // getReadAloudPos returns a copied line, so resolve its page from stable chapter coordinates.
+-        val pageIndex = cachedTextChapter(chapterIndex)
+-            ?.getPageIndexByCharIndex(line.chapterPosition)
+-            ?.takeIf { it >= 0 }
+-            ?: return null
++        val (page, line) = getReadAloudPos() ?: return null
+         return ReadAloudVisualPositioner.PageAnchor(
+-            chapterIndex = chapterIndex,
+-            pageIndex = pageIndex,
++            chapterIndex = page.chapterIndex,
++            pageIndex = page.index,
+             chapterPosition = line.chapterPosition
+         )
+     }
+@@ -964,7 +959,7 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
+         return visiblePage
+     }
+ 
+-    fun getReadAloudPos(): Pair<Int, TextLine>? {
++    fun getReadAloudPos(): Pair<TextPage, TextLine>? {
+         var relativeOffset: Float
+         for (relativePos in readAloudVisibleRelativePositions()) {
+             relativeOffset = contentOffset(relativePos)
+@@ -982,16 +977,16 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
+                         lineTop += relativeOffset
+                         lineBottom += relativeOffset
+                     }
+-                    return textPage.chapterIndex to visibleLine
++                    return textPage to visibleLine
+                 }
+             }
+         }
+         return null
+     }
+ 
+-    fun getReadAloudCenterPos(): Pair<Int, TextLine>? {
++    fun getReadAloudCenterPos(): Pair<TextPage, TextLine>? {
+         val centerY = ChapterProvider.paddingTop + ChapterProvider.visibleHeight / 2f
+-        var nearestLine: Pair<Int, TextLine>? = null
++        var nearestLine: Pair<TextPage, TextLine>? = null
+         var nearestDistance = Float.MAX_VALUE
+         var relativeOffset: Float
+         for (relativePos in readAloudVisibleRelativePositions()) {
+@@ -1010,7 +1005,7 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
+                     lineBottom = bottom
+                 }
+                 if (centerY > top && centerY < bottom) {
+-                    return textPage.chapterIndex to visibleLine
++                    return textPage to visibleLine
+                 }
+                 val distance = when {
+                     centerY < top -> top - centerY
+@@ -1018,7 +1013,7 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
+                 }
+                 if (distance < nearestDistance) {
+                     nearestDistance = distance
+-                    nearestLine = textPage.chapterIndex to visibleLine
++                    nearestLine = textPage to visibleLine
+                 }
+             }
+         }
+diff --git a/app/src/main/java/io/legado/app/ui/book/read/page/PageView.kt b/app/src/main/java/io/legado/app/ui/book/read/page/PageView.kt
+index f1f3ca943..9e58f5db0 100644
+--- a/app/src/main/java/io/legado/app/ui/book/read/page/PageView.kt
++++ b/app/src/main/java/io/legado/app/ui/book/read/page/PageView.kt
+@@ -558,11 +558,11 @@ class PageView(context: Context) : FrameLayout(context) {
+         return binding.contentTextView.getCurVisiblePage()
+     }
+ 
+-    fun getReadAloudPos(): Pair<Int, TextLine>? {
++    fun getReadAloudPos(): Pair<TextPage, TextLine>? {
+         return binding.contentTextView.getReadAloudPos()
+     }
+ 
+-    fun getReadAloudCenterPos(): Pair<Int, TextLine>? {
++    fun getReadAloudCenterPos(): Pair<TextPage, TextLine>? {
+         return binding.contentTextView.getReadAloudCenterPos()
+     }
+ 
+diff --git a/app/src/main/java/io/legado/app/ui/book/read/page/ReadView.kt b/app/src/main/java/io/legado/app/ui/book/read/page/ReadView.kt
+index 3c59cf648..e46631095 100644
+--- a/app/src/main/java/io/legado/app/ui/book/read/page/ReadView.kt
++++ b/app/src/main/java/io/legado/app/ui/book/read/page/ReadView.kt
+@@ -687,11 +687,11 @@ class ReadView(context: Context, attrs: AttributeSet) :
+         return curPage.getCurVisiblePage()
+     }
+ 
+-    fun getReadAloudPos(): Pair<Int, TextLine>? {
++    fun getReadAloudPos(): Pair<TextPage, TextLine>? {
+         return curPage.getReadAloudPos()
+     }
+ 
+-    fun getReadAloudCenterPos(): Pair<Int, TextLine>? {
++    fun getReadAloudCenterPos(): Pair<TextPage, TextLine>? {
+         return curPage.getReadAloudCenterPos()
+     }
+ 
 diff --git a/app/src/main/res/values-zh-rCN/strings.xml b/app/src/main/res/values-zh-rCN/strings.xml
 index 2fea33bc7..b177a6fc1 100644
 --- a/app/src/main/res/values-zh-rCN/strings.xml
