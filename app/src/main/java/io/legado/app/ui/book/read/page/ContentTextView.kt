@@ -275,7 +275,9 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
      * pageOffset + textPage.height 为 textPage 下方的高度
      */
     fun scroll(mOffset: Int) {
-        val beforeState = readAloudVisualDebugState()
+        if (!ReadAloudVisualPositioner.shouldHandleScrollFrame(mOffset)) return
+        val beforeChapterIndex = textPage.chapterIndex
+        val beforePageIndex = textPage.index
         if (ReadAloudVisualPositioner.shouldSuppressScrollAfterVisualRestore(
                 readAloudFollowActive = readAloudFollowActive,
                 nowMillis = SystemClock.uptimeMillis(),
@@ -284,12 +286,12 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
         ) {
             ReadAloudVisualTrace.record(
                 event = "scrollSuppressedAfterRestore",
-                detail = "mOffset=$mOffset before=[$beforeState]"
+                detail = "mOffset=$mOffset ${readAloudVisualDebugState()}"
             )
             postInvalidate()
             return
         }
-        resetReadAloudFollowByUserScroll()
+        val followInterrupted = resetReadAloudFollowByUserScroll()
         pageOffset += mOffset
         if (longScreenshot) {
             scrollY += -mOffset
@@ -320,10 +322,14 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
                 pageDelegate?.abortAnim()
             }
         }
-        ReadAloudVisualTrace.record(
-            event = "scroll",
-            detail = "mOffset=$mOffset before=[$beforeState] after=[${readAloudVisualDebugState()}]"
-        )
+        val pageChanged = beforeChapterIndex != textPage.chapterIndex ||
+                beforePageIndex != textPage.index
+        if (ReadAloudVisualPositioner.shouldTraceScrollState(followInterrupted, pageChanged)) {
+            ReadAloudVisualTrace.record(
+                event = "scrollState",
+                detail = "mOffset=$mOffset interrupted=$followInterrupted from=$beforeChapterIndex/$beforePageIndex ${readAloudVisualDebugState()}"
+            )
+        }
         callBack.onReadAloudVisualFollowInterrupted()
         postInvalidate()
     }
@@ -431,12 +437,21 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
             )
             return false
         }
+        val currentEffectiveOffset = contentOffset(0)
+        val targetIsCurrentPage = firstLine.textPage.chapterIndex == textPage.chapterIndex &&
+                firstLine.textPage.index == textPage.index
+        // Positive placement can belong to the previous page; do not carry it onto this page.
+        val baseOffset = ReadAloudVisualPositioner.resolveFollowBaseOffset(
+            currentOffset = currentEffectiveOffset,
+            initialEffectiveOffset = initialEffectiveOffset,
+            targetIsCurrentPage = targetIsCurrentPage
+        )
         val effectiveOffset = ReadAloudVisualPositioner.calculateOffset(
             paragraphTop = paragraphTop,
             paragraphBottom = paragraphBottom,
             visibleTop = ChapterProvider.paddingTop.toFloat(),
             visibleHeight = ChapterProvider.visibleHeight.toFloat(),
-            currentOffset = initialEffectiveOffset?.toFloat() ?: contentOffset(0)
+            currentOffset = baseOffset
         )
         readAloudPageOffset = effectiveOffset - pageOffset
         readAloudFollowActive = true
@@ -449,7 +464,7 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
         )
         ReadAloudVisualTrace.record(
             event = "follow",
-            detail = "target=${firstLine.textPage.chapterIndex}/${firstLine.textPage.index} paragraph=${paragraph.chapterPosition}-${paragraph.chapterIndices.last} top=$paragraphTop bottom=$paragraphBottom initial=$initialEffectiveOffset effective=$effectiveOffset pageShift=$pageShift ${readAloudVisualDebugState()}"
+            detail = "target=${firstLine.textPage.chapterIndex}/${firstLine.textPage.index} paragraph=${paragraph.chapterPosition}-${paragraph.chapterIndices.last} top=$paragraphTop bottom=$paragraphBottom initial=$initialEffectiveOffset base=$baseOffset effective=$effectiveOffset pageShift=$pageShift ${readAloudVisualDebugState()}"
         )
         postInvalidate()
         return true
@@ -491,11 +506,13 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
         return callBack.isScroll || readAloudFollowActive
     }
 
-    private fun resetReadAloudFollowByUserScroll() {
+    private fun resetReadAloudFollowByUserScroll(): Boolean {
+        val hadFollowState = readAloudFollowActive || readAloudPageOffset != 0
         materializeReadAloudFollow(
             event = "interruptFollowByScroll",
             syncVisualAnchor = true
         )
+        return hadFollowState
     }
 
     private fun materializeReadAloudFollow(
@@ -526,15 +543,10 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
     }
 
     private fun readAloudVisibleAnchor(): ReadAloudVisualPositioner.PageAnchor? {
-        val (chapterIndex, line) = getReadAloudPos() ?: return null
-        // getReadAloudPos returns a copied line, so resolve its page from stable chapter coordinates.
-        val pageIndex = cachedTextChapter(chapterIndex)
-            ?.getPageIndexByCharIndex(line.chapterPosition)
-            ?.takeIf { it >= 0 }
-            ?: return null
+        val (page, line) = getReadAloudPos() ?: return null
         return ReadAloudVisualPositioner.PageAnchor(
-            chapterIndex = chapterIndex,
-            pageIndex = pageIndex,
+            chapterIndex = page.chapterIndex,
+            pageIndex = page.index,
             chapterPosition = line.chapterPosition
         )
     }
@@ -955,7 +967,7 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
         return visiblePage
     }
 
-    fun getReadAloudPos(): Pair<Int, TextLine>? {
+    fun getReadAloudPos(): Pair<TextPage, TextLine>? {
         var relativeOffset: Float
         for (relativePos in readAloudVisibleRelativePositions()) {
             relativeOffset = contentOffset(relativePos)
@@ -973,16 +985,16 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
                         lineTop += relativeOffset
                         lineBottom += relativeOffset
                     }
-                    return textPage.chapterIndex to visibleLine
+                    return textPage to visibleLine
                 }
             }
         }
         return null
     }
 
-    fun getReadAloudCenterPos(): Pair<Int, TextLine>? {
+    fun getReadAloudCenterPos(): Pair<TextPage, TextLine>? {
         val centerY = ChapterProvider.paddingTop + ChapterProvider.visibleHeight / 2f
-        var nearestLine: Pair<Int, TextLine>? = null
+        var nearestLine: Pair<TextPage, TextLine>? = null
         var nearestDistance = Float.MAX_VALUE
         var relativeOffset: Float
         for (relativePos in readAloudVisibleRelativePositions()) {
@@ -1001,7 +1013,7 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
                     lineBottom = bottom
                 }
                 if (centerY > top && centerY < bottom) {
-                    return textPage.chapterIndex to visibleLine
+                    return textPage to visibleLine
                 }
                 val distance = when {
                     centerY < top -> top - centerY
@@ -1009,7 +1021,7 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
                 }
                 if (distance < nearestDistance) {
                     nearestDistance = distance
-                    nearestLine = textPage.chapterIndex to visibleLine
+                    nearestLine = textPage to visibleLine
                 }
             }
         }

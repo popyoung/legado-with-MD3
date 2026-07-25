@@ -687,11 +687,11 @@ class ReadView(context: Context, attrs: AttributeSet) :
         return curPage.getCurVisiblePage()
     }
 
-    fun getReadAloudPos(): Pair<Int, TextLine>? {
+    fun getReadAloudPos(): Pair<TextPage, TextLine>? {
         return curPage.getReadAloudPos()
     }
 
-    fun getReadAloudCenterPos(): Pair<Int, TextLine>? {
+    fun getReadAloudCenterPos(): Pair<TextPage, TextLine>? {
         return curPage.getReadAloudCenterPos()
     }
 

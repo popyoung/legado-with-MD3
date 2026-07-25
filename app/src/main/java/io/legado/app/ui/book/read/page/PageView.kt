@@ -558,11 +558,11 @@ class PageView(context: Context) : FrameLayout(context) {
         return binding.contentTextView.getCurVisiblePage()
     }
 
-    fun getReadAloudPos(): Pair<Int, TextLine>? {
+    fun getReadAloudPos(): Pair<TextPage, TextLine>? {
         return binding.contentTextView.getReadAloudPos()
     }
 
-    fun getReadAloudCenterPos(): Pair<Int, TextLine>? {
+    fun getReadAloudCenterPos(): Pair<TextPage, TextLine>? {
         return binding.contentTextView.getReadAloudCenterPos()
     }
 

@@ -289,6 +289,14 @@ class ReadBookActivity : BaseReadBookActivity(),
     private var readAloudHighlightedPages = emptySet<ReadAloudParagraphHighlighter.HighlightedPage>()
     private var lastReadAloudPresentationVisible: Boolean? = null
     private val handler by lazy { buildMainHandler() }
+    private val readAloudVisualViewportSettledRunnable = Runnable {
+        if (!BaseReadAloudService.isRun) return@Runnable
+        updateReadAloudVisualCenterIndicator(forceTrace = false)
+        ReadAloudVisualTrace.record(
+            event = "scrollSettled",
+            detail = "paused=$readAloudVisualFollowPaused read=${BaseReadAloudService.readAloudChapterIndex}/${BaseReadAloudService.readAloudChapterStart} visual=[${binding.readView.readAloudVisualDebugState()}]"
+        )
+    }
     private val screenOffRunnable by lazy { Runnable { keepScreenOn(false) } }
     private val executor = ReadBook.executor
     private val upSeekBarThrottle = throttle(200) {
@@ -1527,7 +1535,8 @@ class ReadBookActivity : BaseReadBookActivity(),
                 if (scrollPageAnim) {
                     val pos = binding.readView.getReadAloudPos()
                     if (pos != null) {
-                        val (index, line) = pos
+                        val (page, line) = pos
+                        val index = page.chapterIndex
                         if (ReadBook.durChapterIndex != index) {
                             ReadBook.openChapter(index, line.chapterPosition, false) {
                                 readAloudFromLineParagraphStart(line)
@@ -1601,14 +1610,15 @@ class ReadBookActivity : BaseReadBookActivity(),
             )
             return false
         }
-        val (index, line) = pos
+        val (page, line) = pos
+        val index = page.chapterIndex
         ReadAloudVisualTrace.record(
             event = "manualStepVisualCenter",
             detail = "chapter=$index lineChapterPos=${line.chapterPosition} linePagePos=${line.pagePosition} paragraph=${line.paragraphNum} visual=[${binding.readView.readAloudVisualDebugState()}]"
         )
         val currentChapterIndex = ReadBook.curTextChapter?.chapter?.index
             ?: ReadBook.durChapterIndex
-        val targetChapter = line.textPage.getTextChapter().takeIf {
+        val targetChapter = page.getTextChapter().takeIf {
             it.isCompleted && it.chapter.index == index
         }
         when (ReadAloudVisualPositioner.visualCenterChapterAction(
@@ -1676,10 +1686,10 @@ class ReadBookActivity : BaseReadBookActivity(),
     private fun readAloudPositionVisibleOnScreen(): Boolean {
         val chapterIndex = BaseReadAloudService.readAloudChapterIndex
         if (chapterIndex < 0) return true
-        return binding.readView.containsVisibleChapterPosition(
+        return readAloudPresentationSnapshot(
             chapterIndex = chapterIndex,
-            chapterPosition = BaseReadAloudService.readAloudChapterStart
-        )
+            chapterStart = BaseReadAloudService.readAloudChapterStart
+        ).paragraphVisible
     }
 
     private fun restoreReadAloudVisualPosition(
@@ -1957,11 +1967,16 @@ class ReadBookActivity : BaseReadBookActivity(),
     }
 
     override fun onReadAloudVisualFollowInterrupted() {
-        if (BaseReadAloudService.isPlay()) {
+        if (!BaseReadAloudService.isRun) return
+        if (BaseReadAloudService.isPlay() && !readAloudVisualFollowPaused) {
             readAloudVisualFollowPaused = true
             cancelReadAloudVisualRestore()
         }
-        updateReadAloudVisualCenterIndicator(forceTrace = false)
+        handler.removeCallbacks(readAloudVisualViewportSettledRunnable)
+        handler.postDelayed(
+            readAloudVisualViewportSettledRunnable,
+            READ_ALOUD_VISUAL_VIEWPORT_SETTLE_MS
+        )
     }
 
     /**
@@ -2297,6 +2312,7 @@ class ReadBookActivity : BaseReadBookActivity(),
     }
 
     override fun onDestroy() {
+        handler.removeCallbacks(readAloudVisualViewportSettledRunnable)
         super.onDestroy()
         tts?.clearTts()
         textActionMenu.dismiss()
@@ -2626,6 +2642,7 @@ class ReadBookActivity : BaseReadBookActivity(),
 
     companion object {
         const val RESULT_DELETED = 100
+        private const val READ_ALOUD_VISUAL_VIEWPORT_SETTLE_MS = 80L
     }
 
 }

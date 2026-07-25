@@ -1031,4 +1031,88 @@ class ReadAloudVisualPositionerTest {
 
         assertEquals(-50, offset)
     }
+
+    @Test
+    fun explicitChapterBoundaryOffsetOverridesInheritedOffset() {
+        val offset = ReadAloudVisualPositioner.resolveFollowBaseOffset(
+            currentOffset = 613f,
+            initialEffectiveOffset = 280,
+            targetIsCurrentPage = true
+        )
+
+        assertEquals(280f, offset)
+    }
+
+    @Test
+    fun currentPageTargetDropsInheritedPositiveOffset() {
+        val offset = ReadAloudVisualPositioner.resolveFollowBaseOffset(
+            currentOffset = 613f,
+            initialEffectiveOffset = null,
+            targetIsCurrentPage = true
+        )
+
+        assertEquals(0f, offset)
+    }
+
+    @Test
+    fun previousPageTargetKeepsPositiveOffset() {
+        val offset = ReadAloudVisualPositioner.resolveFollowBaseOffset(
+            currentOffset = 613f,
+            initialEffectiveOffset = null,
+            targetIsCurrentPage = false
+        )
+
+        assertEquals(613f, offset)
+    }
+
+    @Test
+    fun currentPageTargetKeepsNonPositiveOffset() {
+        val offset = ReadAloudVisualPositioner.resolveFollowBaseOffset(
+            currentOffset = -320f,
+            initialEffectiveOffset = null,
+            targetIsCurrentPage = true
+        )
+
+        assertEquals(-320f, offset)
+    }
+
+    @Test
+    fun zeroDistanceScrollFrameIsIgnored() {
+        assertFalse(ReadAloudVisualPositioner.shouldHandleScrollFrame(0))
+    }
+
+    @Test
+    fun nonZeroScrollFrameIsHandled() {
+        assertTrue(ReadAloudVisualPositioner.shouldHandleScrollFrame(-12))
+    }
+
+    @Test
+    fun scrollTraceRecordsFollowInterruption() {
+        assertTrue(
+            ReadAloudVisualPositioner.shouldTraceScrollState(
+                followInterrupted = true,
+                pageChanged = false
+            )
+        )
+    }
+
+    @Test
+    fun scrollTraceRecordsRenderedPageChange() {
+        assertTrue(
+            ReadAloudVisualPositioner.shouldTraceScrollState(
+                followInterrupted = false,
+                pageChanged = true
+            )
+        )
+    }
+
+    @Test
+    fun scrollTraceSkipsOrdinaryAnimationFrame() {
+        assertFalse(
+            ReadAloudVisualPositioner.shouldTraceScrollState(
+                followInterrupted = false,
+                pageChanged = false
+            )
+        )
+    }
 }

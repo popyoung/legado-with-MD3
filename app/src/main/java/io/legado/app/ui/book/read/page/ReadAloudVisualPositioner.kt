@@ -60,6 +60,21 @@ internal object ReadAloudVisualPositioner {
         }
     }
 
+    fun resolveFollowBaseOffset(
+        currentOffset: Float,
+        initialEffectiveOffset: Int?,
+        targetIsCurrentPage: Boolean
+    ): Float {
+        if (initialEffectiveOffset != null) {
+            return initialEffectiveOffset.toFloat()
+        }
+        return if (targetIsCurrentPage && currentOffset > 0f) {
+            0f
+        } else {
+            currentOffset
+        }
+    }
+
     fun relativePageTop(
         currentPageIndex: Int,
         targetPageIndex: Int,
@@ -165,6 +180,17 @@ internal object ReadAloudVisualPositioner {
         indicatorChanged: Boolean
     ): Boolean {
         return forceTrace || indicatorChanged
+    }
+
+    fun shouldHandleScrollFrame(mOffset: Int): Boolean {
+        return mOffset != 0
+    }
+
+    fun shouldTraceScrollState(
+        followInterrupted: Boolean,
+        pageChanged: Boolean
+    ): Boolean {
+        return followInterrupted || pageChanged
     }
 
     fun contentOffset(
