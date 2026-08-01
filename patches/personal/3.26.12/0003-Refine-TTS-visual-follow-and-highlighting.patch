@@ -1,10 +1,10 @@
-From 90ec020ea8edd54fd26f1768a9972ed0aca48c8d Mon Sep 17 00:00:00 2001
+From 8f149a6ed10a3050c779ca029a277c558a0cdcba Mon Sep 17 00:00:00 2001
 From: popyoung <popyoung@users.noreply.github.com>
 Date: Thu, 9 Jul 2026 00:00:00 +0800
 Subject: [PATCH 3/5] Refine TTS visual follow and highlighting
 
 ---
- .../app/ui/book/read/ReadBookActivity.kt      |  712 ++++++++++-
+ .../app/ui/book/read/ReadBookActivity.kt      |  705 ++++++++++-
  .../app/ui/book/read/page/ContentTextView.kt  |  570 ++++++++-
  .../legado/app/ui/book/read/page/PageView.kt  |   46 +-
  .../page/ReadAloudParagraphHighlighter.kt     |   49 +
@@ -19,7 +19,7 @@ Subject: [PATCH 3/5] Refine TTS visual follow and highlighting
  ...-07-25-tts-visual-state-contract-repair.md |  134 ++
  ...2026-07-14-tts-visual-state-sync-design.md |  124 ++
  ...tts-visual-state-contract-repair-design.md |   77 ++
- 15 files changed, 3678 insertions(+), 71 deletions(-)
+ 15 files changed, 3670 insertions(+), 72 deletions(-)
  create mode 100644 app/src/main/java/io/legado/app/ui/book/read/page/ReadAloudParagraphHighlighter.kt
  create mode 100644 app/src/main/java/io/legado/app/ui/book/read/page/ReadAloudVisualPositioner.kt
  create mode 100644 app/src/test/java/io/legado/app/ui/book/read/page/ReadAloudParagraphHighlighterTest.kt
@@ -30,7 +30,7 @@ Subject: [PATCH 3/5] Refine TTS visual follow and highlighting
  create mode 100644 docs/superpowers/specs/2026-07-25-tts-visual-state-contract-repair-design.md
 
 diff --git a/app/src/main/java/io/legado/app/ui/book/read/ReadBookActivity.kt b/app/src/main/java/io/legado/app/ui/book/read/ReadBookActivity.kt
-index db62d85de..c3a09a5d5 100644
+index db62d85de..a27f4f061 100644
 --- a/app/src/main/java/io/legado/app/ui/book/read/ReadBookActivity.kt
 +++ b/app/src/main/java/io/legado/app/ui/book/read/ReadBookActivity.kt
 @@ -57,6 +57,7 @@ import io.legado.app.lib.dialogs.SelectItem
@@ -175,7 +175,7 @@ index db62d85de..c3a09a5d5 100644
                          }
                      } else {
                          ReadBook.readAloud()
-@@ -1496,36 +1544,426 @@ class ReadBookActivity : BaseReadBookActivity(),
+@@ -1496,36 +1544,417 @@ class ReadBookActivity : BaseReadBookActivity(),
              }
  
              BaseReadAloudService.pause -> {
@@ -199,6 +199,9 @@ index db62d85de..c3a09a5d5 100644
 -                        } else {
 -                            ReadBook.durChapterPos = line.chapterPosition
 -                            ReadBook.readAloud(startPos = line.pagePosition)
+-                        }
+-                    } else {
+-                        ReadBook.readAloud()
 +                    restoreReadAloudVisualPosition(ReadAloudVisualRestoreReason.ResumePlayback)
 +                }
 +                ReadAloud.resume(this)
@@ -485,45 +488,34 @@ index db62d85de..c3a09a5d5 100644
 +                readAloudParagraphVisible = readAloudParagraphVisible
 +            )
 +        ) {
-+            upContent(resetPageOffset = false) {
-+                if (!isCurrentReadAloudRestore(restoreSerial, chapterIndex, chapterStart)) {
-+                    ReadAloudVisualTrace.record(
-+                        event = "restoreVisualSkip",
-+                        detail = "reason=staleInUpContent source=${restoreReason.name} serial=$restoreSerial currentSerial=$readAloudRestoreSerial read=${BaseReadAloudService.readAloudChapterIndex}/${BaseReadAloudService.readAloudChapterStart} target=$chapterIndex/$chapterStart visual=[${binding.readView.readAloudVisualDebugState()}]"
-+                    )
-+                    return@upContent
-+                }
-+                updateReadAloudParagraphSpan(paragraph)
-+                val followed = binding.readView.followReadAloudParagraph(paragraph)
-+                if (!followed) {
-+                    jumpToReadAloudPage(
-+                        textChapter = textChapter,
-+                        pageIndex = pageIndex,
-+                        paragraph = paragraph,
-+                        initialEffectiveOffset = null,
-+                        suppressResidualScroll = true,
-+                        afterJump = {
-+                            ReadAloudVisualTrace.record(
-+                                event = "restoreVisualResult",
-+                                detail = "reason=${restoreReason.name} action=jumpVisible follow=true page=$pageIndex visual=[${binding.readView.readAloudVisualDebugState()}]"
-+                            )
-+                        },
-+                        isCurrent = {
-+                            isCurrentReadAloudRestore(restoreSerial, chapterIndex, chapterStart)
-                         }
--                    } else {
--                        ReadBook.readAloud()
--                    }
-+                    )
-                 } else {
++            updateReadAloudParagraphSpan(paragraph)
++            val followed = binding.readView.followReadAloudParagraph(paragraph)
++            if (!followed) {
++                jumpToReadAloudPage(
++                    textChapter = textChapter,
++                    pageIndex = pageIndex,
++                    paragraph = paragraph,
++                    initialEffectiveOffset = null,
++                    suppressResidualScroll = true,
++                    afterJump = {
++                        ReadAloudVisualTrace.record(
++                            event = "restoreVisualResult",
++                            detail = "reason=${restoreReason.name} action=jumpVisible follow=true page=$pageIndex visual=[${binding.readView.readAloudVisualDebugState()}]"
++                        )
++                    },
++                    isCurrent = {
++                        isCurrentReadAloudRestore(restoreSerial, chapterIndex, chapterStart)
+                     }
+-                } else {
 -                    ReadAloud.resume(this)
-+                    binding.readView.suppressReadAloudVisualScrollAfterRestore()
-+                    ReadAloudVisualTrace.record(
-+                        event = "restoreVisualResult",
-+                        detail = "reason=${restoreReason.name} action=followVisible follow=true page=$pageIndex visual=[${binding.readView.readAloudVisualDebugState()}]"
-+                    )
-                 }
-             }
++                )
++            } else {
++                binding.readView.suppressReadAloudVisualScrollAfterRestore()
++                ReadAloudVisualTrace.record(
++                    event = "restoreVisualResult",
++                    detail = "reason=${restoreReason.name} action=followVisibleInPlace follow=true page=$pageIndex visual=[${binding.readView.readAloudVisualDebugState()}]"
++                )
++            }
 +            return
 +        }
 +        val initialEffectiveOffset = paragraph?.let {
@@ -546,8 +538,7 @@ index db62d85de..c3a09a5d5 100644
 +            }
 +        )
 +    }
- 
--            else -> ReadAloud.pause(this)
++
 +    private fun jumpToReadAloudPage(
 +        textChapter: TextChapter,
 +        pageIndex: Int,
@@ -570,11 +561,12 @@ index db62d85de..c3a09a5d5 100644
 +                }
 +                if (isCurrent()) {
 +                    afterJump()
-+                }
-+            }
-         }
-     }
+                 }
+             }
++        }
++    }
  
+-            else -> ReadAloud.pause(this)
 +    private fun readAloudFromLineParagraphStart(line: TextLine) {
 +        val textChapter = ReadBook.curTextChapter ?: run {
 +            ReadAloudVisualTrace.record(
@@ -583,7 +575,7 @@ index db62d85de..c3a09a5d5 100644
 +            )
 +            ReadBook.readAloud(startPos = line.pagePosition)
 +            return
-+        }
+         }
 +        val paragraph = findReadAloudParagraph(textChapter, line.chapterPosition)
 +        if (paragraph == null) {
 +            ReadBook.durChapterPos = line.chapterPosition
@@ -602,8 +594,8 @@ index db62d85de..c3a09a5d5 100644
 +            detail = "chapter=${textChapter.chapter.index} page=$pageIndex startPos=$startPos paragraph=${paragraph.chapterPosition}-${paragraph.chapterIndices.last} line=${line.chapterPosition}/${line.pagePosition}"
 +        )
 +        ReadBook.readAloud(pageIndex = pageIndex, startPos = startPos.coerceAtLeast(0))
-+    }
-+
+     }
+ 
      override fun showHelp() {
          showHelp("readMenuHelp")
      }
@@ -619,7 +611,7 @@ index db62d85de..c3a09a5d5 100644
      /**
       * 点击图片
       */
-@@ -1904,25 +2342,29 @@ class ReadBookActivity : BaseReadBookActivity(),
+@@ -1904,25 +2333,29 @@ class ReadBookActivity : BaseReadBookActivity(),
              }
          }
          observeEvent<Int>(EventBus.ALOUD_STATE) {
@@ -636,7 +628,7 @@ index db62d85de..c3a09a5d5 100644
 +                prepareReadAloudVisualForPause("State$it")
 +                if (ReadBook.curTextChapter != null) {
 +                    clearReadAloudParagraphSpan()
-+                    readView.upContent(resetPageOffset = false)
++                    readView.curPage.invalidateContentView()
                  }
 +                readView.setReadAloudVisualCenterIndicator(false)
              }
@@ -662,7 +654,7 @@ index db62d85de..c3a09a5d5 100644
                      }
                  }
              }
-@@ -1954,6 +2396,202 @@ class ReadBookActivity : BaseReadBookActivity(),
+@@ -1954,6 +2387,202 @@ class ReadBookActivity : BaseReadBookActivity(),
          }
      }
  

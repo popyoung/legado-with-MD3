@@ -1,4 +1,4 @@
-From d96b40e61f4c1e1a2b2bae3ac018211ae116e975 Mon Sep 17 00:00:00 2001
+From 90c83cbc9a716f5ab1e286cfea0452f68bbb77a6 Mon Sep 17 00:00:00 2001
 From: popyoung <popyoung@users.noreply.github.com>
 Date: Wed, 8 Jul 2026 00:00:00 +0800
 Subject: [PATCH 4/5] Add TTS visual position controls
@@ -46,7 +46,7 @@ index 8476d4395..7a7cd1cc7 100644
  
      var ttsSpeechRate: Int
 diff --git a/app/src/main/java/io/legado/app/ui/book/read/ReadBookActivity.kt b/app/src/main/java/io/legado/app/ui/book/read/ReadBookActivity.kt
-index c3a09a5d5..62e0d6abf 100644
+index a27f4f061..d8ee011f2 100644
 --- a/app/src/main/java/io/legado/app/ui/book/read/ReadBookActivity.kt
 +++ b/app/src/main/java/io/legado/app/ui/book/read/ReadBookActivity.kt
 @@ -1527,7 +1527,8 @@ class ReadBookActivity : BaseReadBookActivity(),

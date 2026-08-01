@@ -1,4 +1,4 @@
-From 992f167853cda3daf413f43f641a08404395785e Mon Sep 17 00:00:00 2001
+From 3b9bb791b1ef5c0bce2997424350ed09e77da7fa Mon Sep 17 00:00:00 2001
 From: popyoung <popyoung@users.noreply.github.com>
 Date: Wed, 8 Jul 2026 00:00:00 +0800
 Subject: [PATCH 5/5] Add TTS visual diagnostics export
@@ -13,7 +13,7 @@ Subject: [PATCH 5/5] Add TTS visual diagnostics export
  create mode 100644 app/src/main/java/io/legado/app/ui/book/read/page/ReadAloudVisualTrace.kt
 
 diff --git a/app/src/main/java/io/legado/app/ui/book/read/ReadBookActivity.kt b/app/src/main/java/io/legado/app/ui/book/read/ReadBookActivity.kt
-index 62e0d6abf..522de8b3c 100644
+index d8ee011f2..0d877da79 100644
 --- a/app/src/main/java/io/legado/app/ui/book/read/ReadBookActivity.kt
 +++ b/app/src/main/java/io/legado/app/ui/book/read/ReadBookActivity.kt
 @@ -289,6 +289,14 @@ class ReadBookActivity : BaseReadBookActivity(),
@@ -31,7 +31,7 @@ index 62e0d6abf..522de8b3c 100644
      private val screenOffRunnable by lazy { Runnable { keepScreenOn(false) } }
      private val executor = ReadBook.executor
      private val upSeekBarThrottle = throttle(200) {
-@@ -1959,11 +1967,16 @@ class ReadBookActivity : BaseReadBookActivity(),
+@@ -1950,11 +1958,16 @@ class ReadBookActivity : BaseReadBookActivity(),
      }
  
      override fun onReadAloudVisualFollowInterrupted() {
@@ -50,7 +50,7 @@ index 62e0d6abf..522de8b3c 100644
      }
  
      /**
-@@ -2299,6 +2312,7 @@ class ReadBookActivity : BaseReadBookActivity(),
+@@ -2290,6 +2303,7 @@ class ReadBookActivity : BaseReadBookActivity(),
      }
  
      override fun onDestroy() {
@@ -58,7 +58,7 @@ index 62e0d6abf..522de8b3c 100644
          super.onDestroy()
          tts?.clearTts()
          textActionMenu.dismiss()
-@@ -2628,6 +2642,7 @@ class ReadBookActivity : BaseReadBookActivity(),
+@@ -2619,6 +2633,7 @@ class ReadBookActivity : BaseReadBookActivity(),
  
      companion object {
          const val RESULT_DELETED = 100
