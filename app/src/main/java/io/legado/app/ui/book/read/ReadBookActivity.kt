@@ -1848,40 +1848,31 @@ class ReadBookActivity : BaseReadBookActivity(),
                 readAloudParagraphVisible = readAloudParagraphVisible
             )
         ) {
-            upContent(resetPageOffset = false) {
-                if (!isCurrentReadAloudRestore(restoreSerial, chapterIndex, chapterStart)) {
-                    ReadAloudVisualTrace.record(
-                        event = "restoreVisualSkip",
-                        detail = "reason=staleInUpContent source=${restoreReason.name} serial=$restoreSerial currentSerial=$readAloudRestoreSerial read=${BaseReadAloudService.readAloudChapterIndex}/${BaseReadAloudService.readAloudChapterStart} target=$chapterIndex/$chapterStart visual=[${binding.readView.readAloudVisualDebugState()}]"
-                    )
-                    return@upContent
-                }
-                updateReadAloudParagraphSpan(paragraph)
-                val followed = binding.readView.followReadAloudParagraph(paragraph)
-                if (!followed) {
-                    jumpToReadAloudPage(
-                        textChapter = textChapter,
-                        pageIndex = pageIndex,
-                        paragraph = paragraph,
-                        initialEffectiveOffset = null,
-                        suppressResidualScroll = true,
-                        afterJump = {
-                            ReadAloudVisualTrace.record(
-                                event = "restoreVisualResult",
-                                detail = "reason=${restoreReason.name} action=jumpVisible follow=true page=$pageIndex visual=[${binding.readView.readAloudVisualDebugState()}]"
-                            )
-                        },
-                        isCurrent = {
-                            isCurrentReadAloudRestore(restoreSerial, chapterIndex, chapterStart)
-                        }
-                    )
-                } else {
-                    binding.readView.suppressReadAloudVisualScrollAfterRestore()
-                    ReadAloudVisualTrace.record(
-                        event = "restoreVisualResult",
-                        detail = "reason=${restoreReason.name} action=followVisible follow=true page=$pageIndex visual=[${binding.readView.readAloudVisualDebugState()}]"
-                    )
-                }
+            updateReadAloudParagraphSpan(paragraph)
+            val followed = binding.readView.followReadAloudParagraph(paragraph)
+            if (!followed) {
+                jumpToReadAloudPage(
+                    textChapter = textChapter,
+                    pageIndex = pageIndex,
+                    paragraph = paragraph,
+                    initialEffectiveOffset = null,
+                    suppressResidualScroll = true,
+                    afterJump = {
+                        ReadAloudVisualTrace.record(
+                            event = "restoreVisualResult",
+                            detail = "reason=${restoreReason.name} action=jumpVisible follow=true page=$pageIndex visual=[${binding.readView.readAloudVisualDebugState()}]"
+                        )
+                    },
+                    isCurrent = {
+                        isCurrentReadAloudRestore(restoreSerial, chapterIndex, chapterStart)
+                    }
+                )
+            } else {
+                binding.readView.suppressReadAloudVisualScrollAfterRestore()
+                ReadAloudVisualTrace.record(
+                    event = "restoreVisualResult",
+                    detail = "reason=${restoreReason.name} action=followVisibleInPlace follow=true page=$pageIndex visual=[${binding.readView.readAloudVisualDebugState()}]"
+                )
             }
             return
         }
@@ -2365,7 +2356,7 @@ class ReadBookActivity : BaseReadBookActivity(),
                 prepareReadAloudVisualForPause("State$it")
                 if (ReadBook.curTextChapter != null) {
                     clearReadAloudParagraphSpan()
-                    readView.upContent(resetPageOffset = false)
+                    readView.curPage.invalidateContentView()
                 }
                 readView.setReadAloudVisualCenterIndicator(false)
             }
