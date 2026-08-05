@@ -1,21 +1,23 @@
-From 5b995b95cc613b52896a54321dd15b29489adb56 Mon Sep 17 00:00:00 2001
-From: popyoung <popyoung@users.noreply.github.com>
-Date: Wed, 8 Jul 2026 00:00:00 +0800
+From 446a38b30fb144bfd9e2529e402c84792a393780 Mon Sep 17 00:00:00 2001
+From: popyoung <popyoung@163.com>
+Date: Thu, 6 Aug 2026 01:49:37 +0800
 Subject: [PATCH 2/5] Add TTS playback state and progress helpers
 
 ---
  .../java/io/legado/app/constant/EventBus.kt   |   1 +
  .../io/legado/app/help/coroutine/Coroutine.kt |   4 +
  .../app/model/ReadAloudPageChangePolicy.kt    |  26 +++
- .../main/java/io/legado/app/model/ReadBook.kt | 163 ++++++++++++++---
- .../app/service/BaseReadAloudService.kt       | 166 ++++++++++++++++--
+ .../main/java/io/legado/app/model/ReadBook.kt | 163 +++++++++++++--
+ .../app/service/BaseReadAloudService.kt       | 195 ++++++++++++++++--
  .../app/service/HttpReadAloudService.kt       |   1 -
- .../legado/app/service/ReadAloudProgress.kt   |  27 +++
+ .../app/service/ReadAloudPlaybackCursor.kt    |   7 +
+ .../legado/app/service/ReadAloudProgress.kt   |  38 ++++
  .../legado/app/service/TTSReadAloudService.kt |  27 ++-
- .../model/ReadAloudPageChangePolicyTest.kt    |  68 +++++++
- .../app/service/ReadAloudProgressTest.kt      |  37 ++++
- 10 files changed, 476 insertions(+), 44 deletions(-)
+ .../model/ReadAloudPageChangePolicyTest.kt    |  68 ++++++
+ .../app/service/ReadAloudProgressTest.kt      |  56 +++++
+ 11 files changed, 541 insertions(+), 45 deletions(-)
  create mode 100644 app/src/main/java/io/legado/app/model/ReadAloudPageChangePolicy.kt
+ create mode 100644 app/src/main/java/io/legado/app/service/ReadAloudPlaybackCursor.kt
  create mode 100644 app/src/main/java/io/legado/app/service/ReadAloudProgress.kt
  create mode 100644 app/src/test/java/io/legado/app/model/ReadAloudPageChangePolicyTest.kt
  create mode 100644 app/src/test/java/io/legado/app/service/ReadAloudProgressTest.kt
@@ -322,7 +324,7 @@ index ea7c6f405..68175b28e 100644
          fun contentLoadFinish()
  
 diff --git a/app/src/main/java/io/legado/app/service/BaseReadAloudService.kt b/app/src/main/java/io/legado/app/service/BaseReadAloudService.kt
-index b3f40ff1c..afbbf80b4 100644
+index b3f40ff1c..6550cc534 100644
 --- a/app/src/main/java/io/legado/app/service/BaseReadAloudService.kt
 +++ b/app/src/main/java/io/legado/app/service/BaseReadAloudService.kt
 @@ -41,9 +41,11 @@ import io.legado.app.help.glide.ImageLoader
@@ -337,7 +339,7 @@ index b3f40ff1c..afbbf80b4 100644
  import io.legado.app.ui.book.read.page.entities.TextChapter
  import io.legado.app.utils.LogUtils
  import io.legado.app.utils.activityPendingIntent
-@@ -84,6 +86,14 @@ abstract class BaseReadAloudService : BaseService(),
+@@ -84,6 +86,21 @@ abstract class BaseReadAloudService : BaseService(),
          var timeMinute: Int = 0
              private set
  
@@ -349,27 +351,36 @@ index b3f40ff1c..afbbf80b4 100644
 +        var readAloudChapterStart: Int = 0
 +            private set
 +
++        private var readAloudCursorSequence = 0L
++        @Volatile
++        private var currentPlaybackCursor: ReadAloudPlaybackCursor? = null
++
++        @JvmStatic
++        internal fun playbackCursor(): ReadAloudPlaybackCursor? = currentPlaybackCursor
++
          fun isPlay(): Boolean {
              return isRun && !pause
          }
-@@ -132,6 +142,7 @@ abstract class BaseReadAloudService : BaseService(),
+@@ -132,6 +149,8 @@ abstract class BaseReadAloudService : BaseService(),
      var paragraphStartPos = 0
      var readAloudByPage = false
          private set
 +    private var rememberedReadAloudPosition: ReadAloudProgress.Position? = null
++    private val progressPublication = ReadAloudProgress.PublicationPolicy()
  
      private val broadcastReceiver = object : BroadcastReceiver() {
          override fun onReceive(context: Context, intent: Intent) {
-@@ -194,6 +205,8 @@ abstract class BaseReadAloudService : BaseService(),
+@@ -194,6 +213,9 @@ abstract class BaseReadAloudService : BaseService(),
          }
          isRun = false
          pause = true
 +        readAloudChapterIndex = -1
 +        readAloudChapterStart = 0
++        currentPlaybackCursor = null
          abandonFocus()
          unregisterReceiver(broadcastReceiver)
          postEvent(EventBus.ALOUD_STATE, Status.STOP)
-@@ -265,7 +278,9 @@ abstract class BaseReadAloudService : BaseService(),
+@@ -265,7 +287,9 @@ abstract class BaseReadAloudService : BaseService(),
                              textChapter.paragraphs[nowSpeak].chapterPosition
                  }
              }
@@ -379,7 +390,7 @@ index b3f40ff1c..afbbf80b4 100644
              launch(Main) {
                  upMediaMetadata()
                  if (play) play() else pageChanged = true
-@@ -311,6 +326,7 @@ abstract class BaseReadAloudService : BaseService(),
+@@ -311,6 +335,7 @@ abstract class BaseReadAloudService : BaseService(),
      @SuppressLint("WakelockTimeout")
      @CallSuper
      open fun resumeReadAloud() {
@@ -387,14 +398,19 @@ index b3f40ff1c..afbbf80b4 100644
          resumeReadAloudInternal()
      }
  
-@@ -326,10 +342,55 @@ abstract class BaseReadAloudService : BaseService(),
+@@ -326,10 +351,73 @@ abstract class BaseReadAloudService : BaseService(),
      abstract fun upSpeechRate(reset: Boolean = false)
  
      fun upTtsProgress(progress: Int) {
+-        postEvent(EventBus.TTS_PROGRESS, progress)
 +        updateReadAloudPosition(progress)
-         postEvent(EventBus.TTS_PROGRESS, progress)
-     }
- 
++        currentPlaybackCursor?.let { cursor ->
++            if (progressPublication.shouldPublish(cursor)) {
++                postEvent(EventBus.TTS_PROGRESS, progress)
++            }
++        }
++    }
++
 +    protected fun rememberCurrentReadAloudPosition() {
 +        rememberReadAloudPosition(
 +            readAloudNumber = readAloudNumber,
@@ -433,17 +449,31 @@ index b3f40ff1c..afbbf80b4 100644
 +        pageIndex = position.pageIndex
 +    }
 +
++    @Synchronized
 +    private fun updateReadAloudPosition(progress: Int) {
-+        readAloudChapterIndex = textChapter?.chapter?.index ?: -1
-+        readAloudChapterStart = progress.coerceAtLeast(0)
-+    }
-+
++        val chapterIndex = textChapter?.chapter?.index ?: -1
++        val chapterStart = progress.coerceAtLeast(0)
++        readAloudChapterIndex = chapterIndex
++        readAloudChapterStart = chapterStart
++        val previous = currentPlaybackCursor
++        if (previous == null ||
++            previous.chapterIndex != chapterIndex ||
++            previous.chapterStart != chapterStart
++        ) {
++            currentPlaybackCursor = ReadAloudPlaybackCursor(
++                chapterIndex = chapterIndex,
++                chapterStart = chapterStart,
++                sequence = ++readAloudCursorSequence
++            )
++        }
+     }
+ 
      private fun prevP() {
 +        postEvent(EventBus.READ_ALOUD_MANUAL_STEP, true)
          if (nowSpeak > 0) {
              playStop()
              do {
-@@ -342,21 +403,20 @@ abstract class BaseReadAloudService : BaseService(),
+@@ -342,21 +430,20 @@ abstract class BaseReadAloudService : BaseService(),
                      val paragraphs = it.getParagraphs(true)
                      if (!paragraphs[nowSpeak].isParagraphEnd) readAloudNumber++
                  }
@@ -470,7 +500,7 @@ index b3f40ff1c..afbbf80b4 100644
          if (nowSpeak < contentList.size - 1) {
              playStop()
              readAloudNumber += contentList[nowSpeak].length.plus(1) - paragraphStartPos
-@@ -367,14 +427,11 @@ abstract class BaseReadAloudService : BaseService(),
+@@ -367,14 +454,11 @@ abstract class BaseReadAloudService : BaseService(),
                      val paragraphs = it.getParagraphs(true)
                      if (!paragraphs[nowSpeak].isParagraphEnd) readAloudNumber--
                  }
@@ -488,7 +518,7 @@ index b3f40ff1c..afbbf80b4 100644
              upMediaMetadata(showContent = true)
              play()
          } else {
-@@ -382,6 +439,48 @@ abstract class BaseReadAloudService : BaseService(),
+@@ -382,6 +466,48 @@ abstract class BaseReadAloudService : BaseService(),
          }
      }
  
@@ -537,7 +567,7 @@ index b3f40ff1c..afbbf80b4 100644
      private fun setTimer(minute: Int) {
          timeMinute = minute
          doDs()
-@@ -702,17 +801,48 @@ abstract class BaseReadAloudService : BaseService(),
+@@ -702,17 +828,48 @@ abstract class BaseReadAloudService : BaseService(),
      abstract fun aloudServicePendingIntent(actionStr: String): PendingIntent?
  
      open fun prevChapter() {
@@ -604,15 +634,39 @@ index 6c83ec29b..3657571a5 100644
                      upTtsProgress(readAloudNumber + i.toInt())
                  }
                  delay(sleep)
+diff --git a/app/src/main/java/io/legado/app/service/ReadAloudPlaybackCursor.kt b/app/src/main/java/io/legado/app/service/ReadAloudPlaybackCursor.kt
+new file mode 100644
+index 000000000..b407827c9
+--- /dev/null
++++ b/app/src/main/java/io/legado/app/service/ReadAloudPlaybackCursor.kt
+@@ -0,0 +1,7 @@
++package io.legado.app.service
++
++internal data class ReadAloudPlaybackCursor(
++    val chapterIndex: Int,
++    val chapterStart: Int,
++    val sequence: Long
++)
 diff --git a/app/src/main/java/io/legado/app/service/ReadAloudProgress.kt b/app/src/main/java/io/legado/app/service/ReadAloudProgress.kt
 new file mode 100644
-index 000000000..95c5acf56
+index 000000000..7b029a171
 --- /dev/null
 +++ b/app/src/main/java/io/legado/app/service/ReadAloudProgress.kt
-@@ -0,0 +1,27 @@
+@@ -0,0 +1,38 @@
 +package io.legado.app.service
 +
 +internal object ReadAloudProgress {
++
++    class PublicationPolicy {
++        private var lastPublishedCursor: ReadAloudPlaybackCursor? = null
++
++        @Synchronized
++        fun shouldPublish(cursor: ReadAloudPlaybackCursor): Boolean {
++            if (lastPublishedCursor == cursor) return false
++            lastPublishedCursor = cursor
++            return true
++        }
++    }
 +
 +    data class Position(
 +        val readAloudNumber: Int,
@@ -783,16 +837,35 @@ index 000000000..3859e0ed2
 +}
 diff --git a/app/src/test/java/io/legado/app/service/ReadAloudProgressTest.kt b/app/src/test/java/io/legado/app/service/ReadAloudProgressTest.kt
 new file mode 100644
-index 000000000..895dffde7
+index 000000000..689f6a71d
 --- /dev/null
 +++ b/app/src/test/java/io/legado/app/service/ReadAloudProgressTest.kt
-@@ -0,0 +1,37 @@
+@@ -0,0 +1,56 @@
 +package io.legado.app.service
 +
 +import org.junit.Assert.assertEquals
++import org.junit.Assert.assertFalse
++import org.junit.Assert.assertTrue
 +import org.junit.Test
 +
 +class ReadAloudProgressTest {
++
++    @Test
++    fun exactConsecutiveCursorIsNotPublishedTwice() {
++        val policy = ReadAloudProgress.PublicationPolicy()
++        val cursor = ReadAloudPlaybackCursor(226, 131, 12)
++
++        assertTrue(policy.shouldPublish(cursor))
++        assertFalse(policy.shouldPublish(cursor))
++    }
++
++    @Test
++    fun samePositionWithNewSemanticSequenceIsPublished() {
++        val policy = ReadAloudProgress.PublicationPolicy()
++
++        assertTrue(policy.shouldPublish(ReadAloudPlaybackCursor(226, 131, 12)))
++        assertTrue(policy.shouldPublish(ReadAloudPlaybackCursor(226, 131, 13)))
++    }
 +
 +    @Test
 +    fun rangeStartKeepsResumePositionInsideCurrentParagraph() {
