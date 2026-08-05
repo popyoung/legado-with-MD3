@@ -347,40 +347,6 @@ class ReadAloudVisualPositionerTest {
     }
 
     @Test
-    fun readAloudPageChangeSkipsCenterIndicatorPreUpdate() {
-        val shouldUpdate = ReadAloudVisualPositioner.shouldUpdateCenterIndicatorOnPageChanged(
-            fromReadAloud = true
-        )
-
-        assertFalse(shouldUpdate)
-    }
-
-    @Test
-    fun userPageChangeUpdatesCenterIndicator() {
-        val shouldUpdate = ReadAloudVisualPositioner.shouldUpdateCenterIndicatorOnPageChanged(
-            fromReadAloud = false
-        )
-
-        assertTrue(shouldUpdate)
-    }
-
-    @Test
-    fun quietCenterIndicatorEvaluationTracesOnlyChanges() {
-        assertFalse(
-            ReadAloudVisualPositioner.shouldTraceCenterIndicatorEvaluation(
-                forceTrace = false,
-                indicatorChanged = false
-            )
-        )
-        assertTrue(
-            ReadAloudVisualPositioner.shouldTraceCenterIndicatorEvaluation(
-                forceTrace = false,
-                indicatorChanged = true
-            )
-        )
-    }
-
-    @Test
     fun activeFollowOffsetIsAddedToScrollOffsetForDrawingOnly() {
         val offset = ReadAloudVisualPositioner.contentOffset(
             pageOffset = -300f,
@@ -400,39 +366,6 @@ class ReadAloudVisualPositionerTest {
         )
 
         assertEquals(-300f, offset)
-    }
-
-    @Test
-    fun visibleReadAloudPositionKeepsManualStepOnReadAloudPosition() {
-        val shouldUseVisualCenter = ReadAloudVisualPositioner.shouldStepFromVisualCenter(
-            visualPositionEnabled = true,
-            readAloudRunning = true,
-            readAloudPositionVisible = true
-        )
-
-        assertFalse(shouldUseVisualCenter)
-    }
-
-    @Test
-    fun hiddenReadAloudPositionAllowsManualStepFromVisualCenter() {
-        val shouldUseVisualCenter = ReadAloudVisualPositioner.shouldStepFromVisualCenter(
-            visualPositionEnabled = true,
-            readAloudRunning = true,
-            readAloudPositionVisible = false
-        )
-
-        assertTrue(shouldUseVisualCenter)
-    }
-
-    @Test
-    fun disabledVisualPositionKeepsManualStepOnReadAloudPosition() {
-        val shouldUseVisualCenter = ReadAloudVisualPositioner.shouldStepFromVisualCenter(
-            visualPositionEnabled = false,
-            readAloudRunning = true,
-            readAloudPositionVisible = false
-        )
-
-        assertFalse(shouldUseVisualCenter)
     }
 
     @Test
@@ -457,28 +390,6 @@ class ReadAloudVisualPositionerTest {
             ReadAloudVisualPositioner.VisualCenterChapterAction.Reject,
             ReadAloudVisualPositioner.visualCenterChapterAction(335, 336, false)
         )
-    }
-
-    @Test
-    fun hiddenReadAloudPositionShowsVisualCenterIndicator() {
-        val shouldShow = ReadAloudVisualPositioner.shouldShowVisualCenterIndicator(
-            visualPositionEnabled = true,
-            readAloudPlaying = true,
-            readAloudPositionVisible = false
-        )
-
-        assertTrue(shouldShow)
-    }
-
-    @Test
-    fun visibleReadAloudPositionHidesVisualCenterIndicator() {
-        val shouldShow = ReadAloudVisualPositioner.shouldShowVisualCenterIndicator(
-            visualPositionEnabled = true,
-            readAloudPlaying = true,
-            readAloudPositionVisible = true
-        )
-
-        assertFalse(shouldShow)
     }
 
     @Test
@@ -512,187 +423,6 @@ class ReadAloudVisualPositionerTest {
     }
 
     @Test
-    fun pausedVisualFollowStillUpdatesHighlightWhenParagraphVisible() {
-        val shouldUpdate = ReadAloudVisualPositioner.shouldUpdateHighlightWhenFollowPaused(
-            readAloudParagraphVisible = true
-        )
-
-        assertTrue(shouldUpdate)
-    }
-
-    @Test
-    fun pausedVisualFollowDoesNotUpdateHighlightWhenParagraphHidden() {
-        val shouldUpdate = ReadAloudVisualPositioner.shouldUpdateHighlightWhenFollowPaused(
-            readAloudParagraphVisible = false
-        )
-
-        assertFalse(shouldUpdate)
-    }
-
-    @Test
-    fun pausedHighlightRefreshesWhenReadAloudPositionBecomesVisible() {
-        assertTrue(
-            ReadAloudVisualPositioner.shouldRefreshPausedHighlightOnVisibility(
-                readAloudPlaying = true,
-                readAloudFollowPaused = true,
-                previousVisible = false,
-                currentVisible = true
-            )
-        )
-    }
-
-    @Test
-    fun pausedHighlightDoesNotRefreshRepeatedVisibleEvaluation() {
-        assertFalse(
-            ReadAloudVisualPositioner.shouldRefreshPausedHighlightOnVisibility(
-                readAloudPlaying = true,
-                readAloudFollowPaused = true,
-                previousVisible = true,
-                currentVisible = true
-            )
-        )
-    }
-
-    @Test
-    fun activeFollowDoesNotUsePausedVisibilityRefresh() {
-        assertFalse(
-            ReadAloudVisualPositioner.shouldRefreshPausedHighlightOnVisibility(
-                readAloudPlaying = true,
-                readAloudFollowPaused = false,
-                previousVisible = false,
-                currentVisible = true
-            )
-        )
-    }
-
-    @Test
-    fun stoppedPlaybackDoesNotUsePausedVisibilityRefresh() {
-        assertFalse(
-            ReadAloudVisualPositioner.shouldRefreshPausedHighlightOnVisibility(
-                readAloudPlaying = false,
-                readAloudFollowPaused = true,
-                previousVisible = false,
-                currentVisible = true
-            )
-        )
-    }
-
-    @Test
-    fun foregroundRestoreResumesHiddenPausedVisualFollowWhilePlaying() {
-        val shouldRestore = ReadAloudVisualPositioner.shouldRestoreVisualFollowOnForeground(
-            readAloudPlaying = true,
-            readAloudVisualFollowPaused = true,
-            readAloudPositionVisible = false
-        )
-
-        assertTrue(shouldRestore)
-    }
-
-    @Test
-    fun foregroundRestoreKeepsVisiblePausedVisualFollowInPlace() {
-        val shouldRestore = ReadAloudVisualPositioner.shouldRestoreVisualFollowOnForeground(
-            readAloudPlaying = true,
-            readAloudVisualFollowPaused = true,
-            readAloudPositionVisible = true,
-            playbackContinuedInBackground = false
-        )
-
-        assertFalse(shouldRestore)
-    }
-
-    @Test
-    fun foregroundRestoreResumesPausedVisualFollowAfterBackgroundPlaybackEvenIfPositionLooksVisible() {
-        val shouldRestore = ReadAloudVisualPositioner.shouldRestoreVisualFollowOnForeground(
-            readAloudPlaying = true,
-            readAloudVisualFollowPaused = true,
-            readAloudPositionVisible = true,
-            playbackContinuedInBackground = true
-        )
-
-        assertTrue(shouldRestore)
-    }
-
-    @Test
-    fun foregroundRestoreResumesAfterBackgroundPlaybackEvenWhenVisualFollowWasNotPaused() {
-        val shouldRestore = ReadAloudVisualPositioner.shouldRestoreVisualFollowOnForeground(
-            readAloudPlaying = true,
-            readAloudVisualFollowPaused = false,
-            readAloudPositionVisible = true,
-            playbackContinuedInBackground = true
-        )
-
-        assertTrue(shouldRestore)
-    }
-
-    @Test
-    fun foregroundRestoreDoesNotRunWhenAudioPaused() {
-        val shouldRestore = ReadAloudVisualPositioner.shouldRestoreVisualFollowOnForeground(
-            readAloudPlaying = false,
-            readAloudVisualFollowPaused = true,
-            readAloudPositionVisible = false,
-            playbackContinuedInBackground = true
-        )
-
-        assertFalse(shouldRestore)
-    }
-
-    @Test
-    fun pausedResumeUsesStoredReadAloudPositionEvenAfterVisualPageChanged() {
-        val shouldRestore = ReadAloudVisualPositioner.shouldRestoreStoredPositionOnResume(
-            readAloudPaused = true,
-            visualPageChanged = true
-        )
-
-        assertTrue(shouldRestore)
-    }
-
-    @Test
-    fun nonPausedStateDoesNotRunStoredPositionResumePath() {
-        val shouldRestore = ReadAloudVisualPositioner.shouldRestoreStoredPositionOnResume(
-            readAloudPaused = false,
-            visualPageChanged = true
-        )
-
-        assertFalse(shouldRestore)
-    }
-
-    @Test
-    fun visibleReadAloudParagraphRestoresWithoutPageJump() {
-        val shouldReuseVisiblePage = ReadAloudVisualPositioner.shouldRestoreWithoutPageJump(
-            readAloudParagraphVisible = true
-        )
-
-        assertTrue(shouldReuseVisiblePage)
-    }
-
-    @Test
-    fun hiddenReadAloudParagraphRequiresPageJumpOnRestore() {
-        val shouldReuseVisiblePage = ReadAloudVisualPositioner.shouldRestoreWithoutPageJump(
-            readAloudParagraphVisible = false
-        )
-
-        assertFalse(shouldReuseVisiblePage)
-    }
-
-    @Test
-    fun progressUpdatesWaitForVisualRestoreToFinish() {
-        val shouldSkip = ReadAloudVisualPositioner.shouldSkipProgressDuringVisualRestore(
-            restoringReadAloudVisualPosition = true
-        )
-
-        assertTrue(shouldSkip)
-    }
-
-    @Test
-    fun progressUpdatesContinueWhenNoVisualRestoreIsRunning() {
-        val shouldSkip = ReadAloudVisualPositioner.shouldSkipProgressDuringVisualRestore(
-            restoringReadAloudVisualPosition = false
-        )
-
-        assertFalse(shouldSkip)
-    }
-
-    @Test
     fun activeFollowSuppressesResidualScrollInsideRestoreWindow() {
         val shouldSuppress = ReadAloudVisualPositioner.shouldSuppressScrollAfterVisualRestore(
             readAloudFollowActive = true,
@@ -723,36 +453,6 @@ class ReadAloudVisualPositionerTest {
         )
 
         assertFalse(shouldSuppress)
-    }
-
-    @Test
-    fun pausedVisualFollowBlocksImplicitRestoreFollow() {
-        val shouldFollow = ReadAloudVisualPositioner.shouldFollowDuringRestore(
-            readAloudVisualFollowPaused = true,
-            explicitFollowRestore = false
-        )
-
-        assertFalse(shouldFollow)
-    }
-
-    @Test
-    fun explicitRestoreCanResumePausedVisualFollow() {
-        val shouldFollow = ReadAloudVisualPositioner.shouldFollowDuringRestore(
-            readAloudVisualFollowPaused = true,
-            explicitFollowRestore = true
-        )
-
-        assertTrue(shouldFollow)
-    }
-
-    @Test
-    fun unpausedVisualFollowAllowsImplicitRestoreFollow() {
-        val shouldFollow = ReadAloudVisualPositioner.shouldFollowDuringRestore(
-            readAloudVisualFollowPaused = false,
-            explicitFollowRestore = false
-        )
-
-        assertTrue(shouldFollow)
     }
 
     @Test

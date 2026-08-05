@@ -94,6 +94,13 @@ abstract class BaseReadAloudService : BaseService(),
         var readAloudChapterStart: Int = 0
             private set
 
+        private var readAloudCursorSequence = 0L
+        @Volatile
+        private var currentPlaybackCursor: ReadAloudPlaybackCursor? = null
+
+        @JvmStatic
+        internal fun playbackCursor(): ReadAloudPlaybackCursor? = currentPlaybackCursor
+
         fun isPlay(): Boolean {
             return isRun && !pause
         }
@@ -143,6 +150,7 @@ abstract class BaseReadAloudService : BaseService(),
     var readAloudByPage = false
         private set
     private var rememberedReadAloudPosition: ReadAloudProgress.Position? = null
+    private val progressPublication = ReadAloudProgress.PublicationPolicy()
 
     private val broadcastReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -207,6 +215,7 @@ abstract class BaseReadAloudService : BaseService(),
         pause = true
         readAloudChapterIndex = -1
         readAloudChapterStart = 0
+        currentPlaybackCursor = null
         abandonFocus()
         unregisterReceiver(broadcastReceiver)
         postEvent(EventBus.ALOUD_STATE, Status.STOP)
@@ -343,7 +352,11 @@ abstract class BaseReadAloudService : BaseService(),
 
     fun upTtsProgress(progress: Int) {
         updateReadAloudPosition(progress)
-        postEvent(EventBus.TTS_PROGRESS, progress)
+        currentPlaybackCursor?.let { cursor ->
+            if (progressPublication.shouldPublish(cursor)) {
+                postEvent(EventBus.TTS_PROGRESS, progress)
+            }
+        }
     }
 
     protected fun rememberCurrentReadAloudPosition() {
@@ -384,9 +397,23 @@ abstract class BaseReadAloudService : BaseService(),
         pageIndex = position.pageIndex
     }
 
+    @Synchronized
     private fun updateReadAloudPosition(progress: Int) {
-        readAloudChapterIndex = textChapter?.chapter?.index ?: -1
-        readAloudChapterStart = progress.coerceAtLeast(0)
+        val chapterIndex = textChapter?.chapter?.index ?: -1
+        val chapterStart = progress.coerceAtLeast(0)
+        readAloudChapterIndex = chapterIndex
+        readAloudChapterStart = chapterStart
+        val previous = currentPlaybackCursor
+        if (previous == null ||
+            previous.chapterIndex != chapterIndex ||
+            previous.chapterStart != chapterStart
+        ) {
+            currentPlaybackCursor = ReadAloudPlaybackCursor(
+                chapterIndex = chapterIndex,
+                chapterStart = chapterStart,
+                sequence = ++readAloudCursorSequence
+            )
+        }
     }
 
     private fun prevP() {

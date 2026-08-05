@@ -18,6 +18,7 @@ import io.legado.app.ui.book.read.page.delegate.PageDelegate
 import io.legado.app.ui.book.read.page.entities.TextChapter
 import io.legado.app.ui.book.read.page.entities.TextLine
 import io.legado.app.ui.book.read.page.entities.TextPage
+import io.legado.app.ui.book.read.ReadAloudViewport
 import io.legado.app.ui.book.read.page.entities.TextParagraph
 import io.legado.app.ui.book.read.page.entities.TextPos
 import io.legado.app.ui.book.read.page.entities.column.BaseColumn
@@ -72,6 +73,7 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
     private var readAloudFollowActive = false
     private var readAloudVisualCenterIndicator = false
     private var readAloudVisualScrollSuppressedUntil = 0L
+    private var readAloudUserScrollInProgress = false
     private val renderRunnable by lazy { Runnable { preRenderPage() } }
     private var lastClickTime = 0L
     private var doubleClick = false
@@ -330,7 +332,12 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
                 detail = "mOffset=$mOffset interrupted=$followInterrupted from=$beforeChapterIndex/$beforePageIndex ${readAloudVisualDebugState()}"
             )
         }
-        callBack.onReadAloudVisualFollowInterrupted()
+        val userScrollStarted = !readAloudUserScrollInProgress
+        readAloudUserScrollInProgress = true
+        callBack.onReadAloudUserScroll(
+            viewport = readAloudViewport(),
+            started = userScrollStarted
+        )
         postInvalidate()
     }
 
@@ -549,6 +556,20 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
             pageIndex = page.index,
             chapterPosition = line.chapterPosition
         )
+    }
+
+    fun readAloudViewport(): ReadAloudViewport? {
+        val anchor = readAloudVisibleAnchor() ?: return null
+        return ReadAloudViewport(
+            chapterIndex = anchor.chapterIndex,
+            pageIndex = anchor.pageIndex,
+            chapterPosition = anchor.chapterPosition
+        )
+    }
+
+    fun finishReadAloudUserScroll(): ReadAloudViewport? {
+        readAloudUserScrollInProgress = false
+        return readAloudViewport()
     }
 
     private fun syncReadBookVisualAnchorBeforeUserScroll(
@@ -1309,6 +1330,6 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
         fun onLongScreenshotTouchEvent(event: MotionEvent): Boolean
         fun oldClickImg(src: String): Boolean
         fun clickImg(click: String, src: String)
-        fun onReadAloudVisualFollowInterrupted()
+        fun onReadAloudUserScroll(viewport: ReadAloudViewport?, started: Boolean)
     }
 }

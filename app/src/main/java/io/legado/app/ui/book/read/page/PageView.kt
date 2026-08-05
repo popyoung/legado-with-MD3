@@ -23,6 +23,7 @@ import io.legado.app.model.ReadBook
 import io.legado.app.ui.book.read.ReadBookActivity
 import io.legado.app.ui.book.read.page.entities.TextLine
 import io.legado.app.ui.book.read.page.entities.TextPage
+import io.legado.app.ui.book.read.ReadAloudViewport
 import io.legado.app.ui.book.read.page.entities.TextParagraph
 import io.legado.app.ui.book.read.page.entities.TextPos
 import io.legado.app.ui.book.read.page.provider.ChapterProvider
@@ -560,6 +561,14 @@ class PageView(context: Context) : FrameLayout(context) {
 
     fun getReadAloudPos(): Pair<TextPage, TextLine>? {
         return binding.contentTextView.getReadAloudPos()
+    }
+
+    fun readAloudViewport(): ReadAloudViewport? {
+        return binding.contentTextView.readAloudViewport()
+    }
+
+    fun finishReadAloudUserScroll(): ReadAloudViewport? {
+        return binding.contentTextView.finishReadAloudUserScroll()
     }
 
     fun getReadAloudCenterPos(): Pair<TextPage, TextLine>? {

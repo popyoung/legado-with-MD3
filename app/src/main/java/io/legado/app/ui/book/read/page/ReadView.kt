@@ -32,6 +32,7 @@ import io.legado.app.ui.book.read.page.entities.PageDirection
 import io.legado.app.ui.book.read.page.entities.TextChapter
 import io.legado.app.ui.book.read.page.entities.TextLine
 import io.legado.app.ui.book.read.page.entities.TextPage
+import io.legado.app.ui.book.read.ReadAloudViewport
 import io.legado.app.ui.book.read.page.entities.TextParagraph
 import io.legado.app.ui.book.read.page.entities.TextPos
 import io.legado.app.ui.book.read.page.entities.column.TextBaseColumn
@@ -689,6 +690,14 @@ class ReadView(context: Context, attrs: AttributeSet) :
 
     fun getReadAloudPos(): Pair<TextPage, TextLine>? {
         return curPage.getReadAloudPos()
+    }
+
+    fun readAloudViewport(): ReadAloudViewport? {
+        return curPage.readAloudViewport()
+    }
+
+    fun finishReadAloudUserScroll(): ReadAloudViewport? {
+        return curPage.finishReadAloudUserScroll()
     }
 
     fun getReadAloudCenterPos(): Pair<TextPage, TextLine>? {

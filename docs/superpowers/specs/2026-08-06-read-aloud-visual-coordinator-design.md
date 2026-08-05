@@ -195,6 +195,7 @@ Representative events:
 - `RestoreRequested(cursor, reason)`
 - `RenderChanged(origin, token, viewport, snapshot)`
 - `RestoreApplied(token, viewport, snapshot)`
+- `BackNavigationRequested(snapshot)`
 - `ManualStepRequested(direction, snapshot, visualPositionEnabled)`
 - `ActivityReturnedToForeground(cursor, snapshot)`
 
@@ -205,6 +206,7 @@ Representative decisions:
 - open or align the target chapter with a restore token;
 - keep the viewport detached and update the center indicator;
 - select playback cursor or visual-center paragraph as the manual-step source;
+- restore the playback viewport or pause audio for system back navigation;
 - ignore a stale callback or duplicate progress event.
 
 The coordinator never performs I/O, starts TTS, opens a chapter, or mutates a
@@ -307,11 +309,16 @@ not contain follow-state policy.
 
 ### User scrolls away and invokes back navigation
 
-1. Coordinator captures the latest playback cursor and creates a restore token.
-2. Activity aligns or opens the target chapter using that token.
-3. Content-load and page-change callbacks tagged with the token cannot cancel
+1. One presentation snapshot determines whether the playback paragraph is in
+   the current viewport.
+2. If playback is absent, the coordinator captures the latest playback cursor,
+   creates a restore token, and keeps audio playing.
+3. Activity aligns or opens the target chapter using that token.
+4. Content-load and page-change callbacks tagged with the token cannot cancel
    the restore.
-4. Restore completes only after the target paragraph is materialized.
+5. Restore completes only after the target paragraph is materialized.
+6. If playback is already present in the current viewport, back navigation
+   pauses audio and does not reposition the text.
 
 ### Pause, scroll, and resume
 
@@ -349,6 +356,8 @@ not contain follow-state policy.
 9. Geometry policy remains in `ReadAloudVisualPositioner`; lifecycle and event
    order do not move into that class.
 10. Non-scroll page animation modes retain their current behavior.
+11. System back navigation restores a missing playback viewport without
+    pausing; it pauses only when the playback paragraph is already visible.
 
 ## Migration Scope
 
@@ -445,6 +454,8 @@ chronological patch. The implementation version will advance from
 - Returning from background restores or highlights the latest playback cursor.
 - The current paragraph remains highlighted after scroll when it is visible.
 - Manual previous/next obeys the playback-visible rule across chapters.
+- System edge back restores an absent playback position while audio continues,
+  and pauses only when the playback paragraph is already visible.
 - No short paragraph is repositioned before its bottom enters the lower
   10-percent region.
 - No unrelated text is highlighted when the playback paragraph is off-screen.

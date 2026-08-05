@@ -171,17 +171,6 @@ internal object ReadAloudVisualPositioner {
         return targetPageIndex == 0 && previousChapterLastPageVisible
     }
 
-    fun shouldUpdateCenterIndicatorOnPageChanged(fromReadAloud: Boolean): Boolean {
-        return !fromReadAloud
-    }
-
-    fun shouldTraceCenterIndicatorEvaluation(
-        forceTrace: Boolean,
-        indicatorChanged: Boolean
-    ): Boolean {
-        return forceTrace || indicatorChanged
-    }
-
     fun shouldHandleScrollFrame(mOffset: Int): Boolean {
         return mOffset != 0
     }
@@ -201,14 +190,6 @@ internal object ReadAloudVisualPositioner {
         return pageOffset + if (readAloudActive) readAloudOffset else 0f
     }
 
-    fun shouldStepFromVisualCenter(
-        visualPositionEnabled: Boolean,
-        readAloudRunning: Boolean,
-        readAloudPositionVisible: Boolean
-    ): Boolean {
-        return visualPositionEnabled && readAloudRunning && !readAloudPositionVisible
-    }
-
     fun visualCenterChapterAction(
         currentChapterIndex: Int,
         targetChapterIndex: Int,
@@ -224,25 +205,6 @@ internal object ReadAloudVisualPositioner {
         }
     }
 
-    fun shouldShowVisualCenterIndicator(
-        visualPositionEnabled: Boolean,
-        readAloudPlaying: Boolean,
-        readAloudPositionVisible: Boolean
-    ): Boolean {
-        return visualPositionEnabled && readAloudPlaying && !readAloudPositionVisible
-    }
-
-    fun shouldRestoreVisualFollowOnForeground(
-        readAloudPlaying: Boolean,
-        readAloudVisualFollowPaused: Boolean,
-        readAloudPositionVisible: Boolean,
-        playbackContinuedInBackground: Boolean = false
-    ): Boolean {
-        if (!readAloudPlaying) return false
-        if (playbackContinuedInBackground) return true
-        return readAloudVisualFollowPaused && !readAloudPositionVisible
-    }
-
     fun followFallback(
         followSucceeded: Boolean,
         visualPageMatchesTarget: Boolean
@@ -255,57 +217,12 @@ internal object ReadAloudVisualPositioner {
         }
     }
 
-    fun shouldUpdateHighlightWhenFollowPaused(
-        readAloudParagraphVisible: Boolean
-    ): Boolean {
-        return readAloudParagraphVisible
-    }
-
-    fun shouldRefreshPausedHighlightOnVisibility(
-        readAloudPlaying: Boolean,
-        readAloudFollowPaused: Boolean,
-        previousVisible: Boolean?,
-        currentVisible: Boolean
-    ): Boolean {
-        return readAloudPlaying &&
-                readAloudFollowPaused &&
-                previousVisible == false &&
-                currentVisible
-    }
-
-    @Suppress("UNUSED_PARAMETER")
-    fun shouldRestoreStoredPositionOnResume(
-        readAloudPaused: Boolean,
-        visualPageChanged: Boolean
-    ): Boolean {
-        return readAloudPaused
-    }
-
-    fun shouldRestoreWithoutPageJump(
-        readAloudParagraphVisible: Boolean
-    ): Boolean {
-        return readAloudParagraphVisible
-    }
-
-    fun shouldSkipProgressDuringVisualRestore(
-        restoringReadAloudVisualPosition: Boolean
-    ): Boolean {
-        return restoringReadAloudVisualPosition
-    }
-
     fun shouldSuppressScrollAfterVisualRestore(
         readAloudFollowActive: Boolean,
         nowMillis: Long,
         suppressUntilMillis: Long
     ): Boolean {
         return readAloudFollowActive && nowMillis <= suppressUntilMillis
-    }
-
-    fun shouldFollowDuringRestore(
-        readAloudVisualFollowPaused: Boolean,
-        explicitFollowRestore: Boolean
-    ): Boolean {
-        return explicitFollowRestore || !readAloudVisualFollowPaused
     }
 
     fun shouldSyncReadBookPageBeforeManualStepProgress(

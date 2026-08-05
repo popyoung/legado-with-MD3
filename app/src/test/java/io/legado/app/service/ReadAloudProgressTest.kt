@@ -1,9 +1,28 @@
 package io.legado.app.service
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ReadAloudProgressTest {
+
+    @Test
+    fun exactConsecutiveCursorIsNotPublishedTwice() {
+        val policy = ReadAloudProgress.PublicationPolicy()
+        val cursor = ReadAloudPlaybackCursor(226, 131, 12)
+
+        assertTrue(policy.shouldPublish(cursor))
+        assertFalse(policy.shouldPublish(cursor))
+    }
+
+    @Test
+    fun samePositionWithNewSemanticSequenceIsPublished() {
+        val policy = ReadAloudProgress.PublicationPolicy()
+
+        assertTrue(policy.shouldPublish(ReadAloudPlaybackCursor(226, 131, 12)))
+        assertTrue(policy.shouldPublish(ReadAloudPlaybackCursor(226, 131, 13)))
+    }
 
     @Test
     fun rangeStartKeepsResumePositionInsideCurrentParagraph() {

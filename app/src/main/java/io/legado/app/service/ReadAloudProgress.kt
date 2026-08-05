@@ -2,6 +2,17 @@ package io.legado.app.service
 
 internal object ReadAloudProgress {
 
+    class PublicationPolicy {
+        private var lastPublishedCursor: ReadAloudPlaybackCursor? = null
+
+        @Synchronized
+        fun shouldPublish(cursor: ReadAloudPlaybackCursor): Boolean {
+            if (lastPublishedCursor == cursor) return false
+            lastPublishedCursor = cursor
+            return true
+        }
+    }
+
     data class Position(
         val readAloudNumber: Int,
         val paragraphStartPos: Int,

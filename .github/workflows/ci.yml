@@ -45,7 +45,7 @@ jobs:
         run: ./gradlew --no-configuration-cache :app:compileAppDebugKotlin
 
       - name: Test read aloud behavior
-        run: ./gradlew --no-configuration-cache :app:testAppDebugUnitTest --tests "io.legado.app.ui.book.read.page.ReadAloudParagraphHighlighterTest" --tests "io.legado.app.ui.book.read.page.ReadAloudVisualPositionerTest" --tests "io.legado.app.service.ReadAloudProgressTest" --tests "io.legado.app.model.ReadAloudPageChangePolicyTest"
+        run: ./gradlew --no-configuration-cache :app:testAppDebugUnitTest --tests "io.legado.app.ui.book.read.ReadAloudVisualCoordinatorTest" --tests "io.legado.app.ui.book.read.page.ReadAloudParagraphHighlighterTest" --tests "io.legado.app.ui.book.read.page.ReadAloudVisualPositionerTest" --tests "io.legado.app.service.ReadAloudProgressTest" --tests "io.legado.app.model.ReadAloudPageChangePolicyTest"
 
       - name: Build arm64-v8a noR8 APK
         run: ./gradlew --no-configuration-cache -Plegado.splitAbis=arm64-v8a :app:assembleAppNoR8
