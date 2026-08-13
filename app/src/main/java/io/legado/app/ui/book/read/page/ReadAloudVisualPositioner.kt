@@ -232,16 +232,16 @@ internal object ReadAloudVisualPositioner {
         return targetPageChanged && !scrollPageAnim
     }
 
-    fun shouldSyncVisualPageBeforeUserScroll(
+    fun resolveUserScrollHandoff(
         readAloudFollowActive: Boolean,
-        visualChapterIndex: Int,
-        visualPageIndex: Int,
+        renderBase: PageAnchor,
         readBookChapterIndex: Int,
         readBookPageIndex: Int
-    ): Boolean {
-        return readAloudFollowActive &&
-                (visualChapterIndex != readBookChapterIndex ||
-                        visualPageIndex != readBookPageIndex)
+    ): PageAnchor? {
+        if (!readAloudFollowActive) return null
+        return renderBase.takeIf {
+            it.chapterIndex != readBookChapterIndex || it.pageIndex != readBookPageIndex
+        }
     }
 
     fun materializedAnchorPosition(

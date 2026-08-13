@@ -17,6 +17,7 @@ import io.legado.app.lib.dialogs.selector
 import io.legado.app.model.ReadAloud
 import io.legado.app.model.ReadBook
 import io.legado.app.service.BaseReadAloudService
+import io.legado.app.ui.book.read.ReadAloudManualStepTrigger
 import io.legado.app.ui.book.read.ReadBookActivity
 import io.legado.app.utils.getPrefBoolean
 import io.legado.app.utils.observeEvent
@@ -108,8 +109,12 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
             dismissAllowingStateLoss()
         }
         ivPlayPause.setOnClickListener { callBack?.onClickReadAloud() }
-        ivPlayPrev.setOnClickListener { callBack?.readAloudPreviousParagraph() }
-        ivPlayNext.setOnClickListener { callBack?.readAloudNextParagraph() }
+        ivPlayPrev.setOnClickListener {
+            callBack?.readAloudPreviousParagraph(ReadAloudManualStepTrigger.Dialog)
+        }
+        ivPlayNext.setOnClickListener {
+            callBack?.readAloudNextParagraph(ReadAloudManualStepTrigger.Dialog)
+        }
         ivCatalog.setOnClickListener { callBack?.openChapterList() }
         ivToBackstage.setOnClickListener { callBack?.finish() }
         cbTtsFollowSys.setOnCheckedChangeListener { _, isChecked ->
@@ -256,8 +261,8 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
         fun showMenuBar()
         fun openChapterList()
         fun onClickReadAloud()
-        fun readAloudPreviousParagraph()
-        fun readAloudNextParagraph()
+        fun readAloudPreviousParagraph(trigger: ReadAloudManualStepTrigger)
+        fun readAloudNextParagraph(trigger: ReadAloudManualStepTrigger)
         fun finish()
     }
 }

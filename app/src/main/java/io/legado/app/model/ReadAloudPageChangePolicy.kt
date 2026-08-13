@@ -2,6 +2,13 @@ package io.legado.app.model
 
 internal object ReadAloudPageChangePolicy {
 
+    fun resolveOrigin(
+        scopedOrigin: ReadAloudPageChangeOrigin?,
+        pendingOrigin: ReadAloudPageChangeOrigin?
+    ): ReadAloudPageChangeOrigin {
+        return pendingOrigin ?: scopedOrigin ?: ReadAloudPageChangeOrigin.User
+    }
+
     @Suppress("UNUSED_PARAMETER")
     fun shouldRestartPausedServiceFromVisualPage(
         readAloudRunning: Boolean,

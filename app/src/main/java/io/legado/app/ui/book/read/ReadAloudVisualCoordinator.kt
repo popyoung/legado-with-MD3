@@ -5,8 +5,24 @@ import io.legado.app.service.ReadAloudPlaybackCursor
 data class ReadAloudViewport(
     val chapterIndex: Int,
     val pageIndex: Int,
-    val chapterPosition: Int
+    val chapterPosition: Int,
+    val renderChapterIndex: Int = chapterIndex,
+    val renderPageIndex: Int = pageIndex,
+    val effectiveOffset: Int = 0
 )
+
+internal data class ReadAloudVisualTarget(
+    val chapterIndex: Int,
+    val pageIndex: Int,
+    val chapterPosition: Int,
+    val pagePosition: Int,
+    val paragraphNum: Int
+)
+
+enum class ReadAloudManualStepTrigger {
+    Dialog,
+    ReadViewAction
+}
 
 internal data class ReadAloudPresentation(
     val cursor: ReadAloudPlaybackCursor,
@@ -84,7 +100,8 @@ internal class ReadAloudVisualCoordinator {
 
         data class ManualStepRequested(
             val presentation: ReadAloudPresentation,
-            val visualPositionEnabled: Boolean
+            val visualPositionEnabled: Boolean,
+            val visualTarget: ReadAloudVisualTarget?
         ) : Event
 
         data class ForegroundReturned(
@@ -112,7 +129,10 @@ internal class ReadAloudVisualCoordinator {
             val reason: RestoreReason
         ) : Effect
 
-        data class StepFrom(val source: ManualStepSource) : Effect
+        data class StepFrom(
+            val source: ManualStepSource,
+            val visualTarget: ReadAloudVisualTarget?
+        ) : Effect
     }
 
     data class Transition(
@@ -308,7 +328,10 @@ internal class ReadAloudVisualCoordinator {
     }
 
     private fun onManualStep(event: Event.ManualStepRequested): Transition {
-        val source = if (!event.presentation.paragraphVisible && event.visualPositionEnabled) {
+        val useVisualTarget = !event.presentation.paragraphVisible &&
+                event.visualPositionEnabled &&
+                event.visualTarget != null
+        val source = if (useVisualTarget) {
             ManualStepSource.VisualCenter
         } else {
             ManualStepSource.PlaybackCursor
@@ -322,7 +345,10 @@ internal class ReadAloudVisualCoordinator {
                 settledPresentation = null
             ),
             Effect.HideCenterIndicator,
-            Effect.StepFrom(source)
+            Effect.StepFrom(
+                source = source,
+                visualTarget = event.visualTarget.takeIf { useVisualTarget }
+            )
         )
     }
 

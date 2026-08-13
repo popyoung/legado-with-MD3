@@ -541,7 +541,11 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
         )
         applyReadAloudMaterializedFollow(interruption, previousPage, nextPage, nextPlusPage)
         if (syncVisualAnchor) {
-            syncReadBookVisualAnchorBeforeUserScroll(followWasActive, visualAnchor)
+            syncReadBookRenderBaseBeforeUserScroll(
+                followWasActive = followWasActive,
+                renderBase = readAloudRenderBaseAnchor(),
+                visualAnchor = visualAnchor
+            )
         }
         ReadAloudVisualTrace.record(
             event,
@@ -558,12 +562,25 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
         )
     }
 
+    private fun readAloudRenderBaseAnchor(): ReadAloudVisualPositioner.PageAnchor? {
+        val chapterPosition = textPage.lines.firstOrNull()?.chapterPosition ?: return null
+        return ReadAloudVisualPositioner.PageAnchor(
+            chapterIndex = textPage.chapterIndex,
+            pageIndex = textPage.index,
+            chapterPosition = chapterPosition
+        )
+    }
+
     fun readAloudViewport(): ReadAloudViewport? {
         val anchor = readAloudVisibleAnchor() ?: return null
+        val renderBase = readAloudRenderBaseAnchor() ?: anchor
         return ReadAloudViewport(
             chapterIndex = anchor.chapterIndex,
             pageIndex = anchor.pageIndex,
-            chapterPosition = anchor.chapterPosition
+            chapterPosition = anchor.chapterPosition,
+            renderChapterIndex = renderBase.chapterIndex,
+            renderPageIndex = renderBase.pageIndex,
+            effectiveOffset = contentOffset(0).toInt()
         )
     }
 
@@ -572,28 +589,25 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
         return readAloudViewport()
     }
 
-    private fun syncReadBookVisualAnchorBeforeUserScroll(
+    private fun syncReadBookRenderBaseBeforeUserScroll(
         followWasActive: Boolean,
+        renderBase: ReadAloudVisualPositioner.PageAnchor?,
         visualAnchor: ReadAloudVisualPositioner.PageAnchor?
     ) {
-        visualAnchor ?: return
-        if (!ReadAloudVisualPositioner.shouldSyncVisualPageBeforeUserScroll(
-                readAloudFollowActive = followWasActive,
-                visualChapterIndex = visualAnchor.chapterIndex,
-                visualPageIndex = visualAnchor.pageIndex,
-                readBookChapterIndex = ReadBook.durChapterIndex,
-                readBookPageIndex = ReadBook.durPageIndex
-            )
-        ) {
-            return
-        }
-        val anchorPage = cachedTextChapter(visualAnchor.chapterIndex)
-            ?.getPage(visualAnchor.pageIndex)
+        renderBase ?: return
+        val target = ReadAloudVisualPositioner.resolveUserScrollHandoff(
+            readAloudFollowActive = followWasActive,
+            renderBase = renderBase,
+            readBookChapterIndex = ReadBook.durChapterIndex,
+            readBookPageIndex = ReadBook.durPageIndex
+        ) ?: return
+        val anchorPage = cachedTextChapter(target.chapterIndex)
+            ?.getPage(target.pageIndex)
             ?: return
-        updateReadBookVisualAnchor(anchorPage, visualAnchor.chapterPosition)
+        updateReadBookVisualAnchor(anchorPage, target.chapterPosition)
         ReadAloudVisualTrace.record(
-            event = "syncVisualAnchorBeforeScroll",
-            detail = "anchor=${visualAnchor.chapterIndex}/${visualAnchor.pageIndex}/${visualAnchor.chapterPosition} ${readAloudVisualDebugState()}"
+            event = "syncRenderBaseBeforeScroll",
+            detail = "render=${target.chapterIndex}/${target.pageIndex}/${target.chapterPosition} visible=$visualAnchor ${readAloudVisualDebugState()}"
         )
     }
 
@@ -681,7 +695,7 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
     }
 
     fun readAloudVisualDebugState(): String {
-        return "textPage=${textPage.chapterIndex}/${textPage.index} pageSize=${textPage.pageSize} pageOffset=$pageOffset readAloudOffset=$readAloudPageOffset active=$readAloudFollowActive indicator=$readAloudVisualCenterIndicator content-1=${drawContentOffset(-1)} content0=${drawContentOffset(0)} content1=${drawContentOffset(1)} content2=${drawContentOffset(2)}"
+        return "textPage=${textPage.chapterIndex}/${textPage.index} pageSize=${textPage.pageSize} dur=${ReadBook.durChapterIndex}/${ReadBook.durPageIndex}/${ReadBook.durChapterPos} pageOffset=$pageOffset readAloudOffset=$readAloudPageOffset effective=${contentOffset(0)} active=$readAloudFollowActive indicator=$readAloudVisualCenterIndicator content-1=${drawContentOffset(-1)} content0=${drawContentOffset(0)} content1=${drawContentOffset(1)} content2=${drawContentOffset(2)}"
     }
 
     /**

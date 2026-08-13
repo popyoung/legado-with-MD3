@@ -84,6 +84,7 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
     private val loadingChapters = arrayListOf<Int>()
     private val readRecord = ReadRecord()
     private val chapterLoadingJobs = ConcurrentHashMap<Int, Coroutine<*>>()
+    private val pendingPageChangeOrigins = ConcurrentHashMap<Int, ReadAloudPageChangeOrigin>()
     private val prevChapterLoadingLock = Mutex()
     private val curChapterLoadingLock = Mutex()
     private val nextChapterLoadingLock = Mutex()
@@ -103,23 +104,38 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
     val preDownloadSemaphore = Semaphore(2)
 
     val executor = globalExecutor
-    private var readAloudPageChangeDepth = 0
+    private var scopedPageChangeOrigin: ReadAloudPageChangeOrigin? = null
 
     fun <T> withReadAloudPageChange(block: () -> T): T {
-        readAloudPageChangeDepth++
+        return withPageChangeOrigin(ReadAloudPageChangeOrigin.Programmatic, block)
+    }
+
+    fun <T> withPageChangeOrigin(
+        origin: ReadAloudPageChangeOrigin,
+        block: () -> T
+    ): T {
+        val previousOrigin = scopedPageChangeOrigin
+        scopedPageChangeOrigin = origin
         return try {
             block()
         } finally {
-            readAloudPageChangeDepth--
+            scopedPageChangeOrigin = previousOrigin
         }
     }
 
+    fun clearPendingPageChangeOrigin(origin: ReadAloudPageChangeOrigin) {
+        pendingPageChangeOrigins.entries
+            .filter { it.value == origin }
+            .forEach { pendingPageChangeOrigins.remove(it.key, origin) }
+    }
+
     suspend fun <T> withReadAloudPageChangeAwait(block: suspend () -> T): T {
-        readAloudPageChangeDepth++
+        val previousOrigin = scopedPageChangeOrigin
+        scopedPageChangeOrigin = ReadAloudPageChangeOrigin.Programmatic
         return try {
             block()
         } finally {
-            readAloudPageChangeDepth--
+            scopedPageChangeOrigin = previousOrigin
         }
     }
 
@@ -162,6 +178,7 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
             downloadedChapters.clear()
             downloadFailChapters.clear()
         }
+        pendingPageChangeOrigins.clear()
     }
 
     fun upData(book: Book) {
@@ -631,9 +648,15 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
         index: Int,
         durChapterPos: Int = 0,
         upContent: Boolean = true,
+        pageChangeOrigin: ReadAloudPageChangeOrigin = ReadAloudPageChangeOrigin.User,
         success: (() -> Unit)? = null
     ) {
         if (index < chapterSize) {
+            if (pageChangeOrigin == ReadAloudPageChangeOrigin.User) {
+                pendingPageChangeOrigins.remove(index)
+            } else {
+                pendingPageChangeOrigins[index] = pageChangeOrigin
+            }
             clearTextChapter()
             if (upContent) callBack?.upContent()
             durChapterIndex = index
@@ -648,9 +671,16 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
     /**
      * 当前页面变化
      */
-    private fun curPageChanged(pageChanged: Boolean = false) {
-        val fromReadAloud = readAloudPageChangeDepth > 0
-        callBack?.pageChanged(fromReadAloud)
+    private fun curPageChanged(
+        pageChanged: Boolean = false,
+        pendingOrigin: ReadAloudPageChangeOrigin? = null
+    ) {
+        val origin = ReadAloudPageChangePolicy.resolveOrigin(
+            scopedOrigin = scopedPageChangeOrigin,
+            pendingOrigin = pendingOrigin
+        )
+        val fromReadAloud = origin != ReadAloudPageChangeOrigin.User
+        callBack?.pageChanged(origin)
         curTextChapter?.let {
             if (ReadAloudPageChangePolicy.shouldRestartPausedServiceFromVisualPage(
                     readAloudRunning = BaseReadAloudService.isRun,
@@ -964,7 +994,9 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
                         callBack?.onLayoutPageCompleted(index, page)
                     }
                     if (upContent) callBack?.upContent(offset, !available && resetPageOffset)
-                    curPageChanged()
+                    curPageChanged(
+                        pendingOrigin = pendingPageChangeOrigins.remove(chapter.index)
+                    )
                     callBack?.contentLoadFinish()
                 }
 
@@ -1069,7 +1101,9 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
                         callBack?.onLayoutPageCompleted(index, page)
                     }
                     if (upContent) callBack?.upContent(offset, !available && resetPageOffset)
-                    curPageChanged()
+                    curPageChanged(
+                        pendingOrigin = pendingPageChangeOrigins.remove(chapter.index)
+                    )
                     callBack?.contentLoadFinish()
                 }
 
@@ -1275,7 +1309,7 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
             success: (() -> Unit)? = null
         )
 
-        fun pageChanged(fromReadAloud: Boolean)
+        fun pageChanged(origin: ReadAloudPageChangeOrigin)
 
         fun contentLoadFinish()
 

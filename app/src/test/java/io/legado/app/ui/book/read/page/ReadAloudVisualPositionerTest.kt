@@ -486,55 +486,54 @@ class ReadAloudVisualPositionerTest {
     }
 
     @Test
-    fun activeFollowSyncsVisualAnchorBeforeUserScrollWhenReadBookPageMovedAhead() {
-        val shouldSync = ReadAloudVisualPositioner.shouldSyncVisualPageBeforeUserScroll(
+    fun userScrollHandoffUsesMaterializedRenderBaseInsteadOfVisibleAnchor() {
+        val renderBase = ReadAloudVisualPositioner.PageAnchor(321, 18, 28700)
+        val target = ReadAloudVisualPositioner.resolveUserScrollHandoff(
             readAloudFollowActive = true,
-            visualChapterIndex = 213,
-            visualPageIndex = 2,
-            readBookChapterIndex = 213,
-            readBookPageIndex = 3
+            renderBase = renderBase,
+            readBookChapterIndex = 321,
+            readBookPageIndex = 19
         )
 
-        assertTrue(shouldSync)
+        assertEquals(renderBase, target)
     }
 
     @Test
-    fun inactiveFollowDoesNotSyncVisualAnchorBeforeUserScroll() {
-        val shouldSync = ReadAloudVisualPositioner.shouldSyncVisualPageBeforeUserScroll(
+    fun inactiveFollowDoesNotChangeReadBookAtUserScrollHandoff() {
+        val target = ReadAloudVisualPositioner.resolveUserScrollHandoff(
             readAloudFollowActive = false,
-            visualChapterIndex = 213,
-            visualPageIndex = 2,
+            renderBase = ReadAloudVisualPositioner.PageAnchor(213, 2, 8200),
             readBookChapterIndex = 213,
             readBookPageIndex = 3
         )
 
-        assertFalse(shouldSync)
+        assertNull(target)
     }
 
     @Test
-    fun matchingReadBookPageDoesNotSyncVisualAnchorBeforeUserScroll() {
-        val shouldSync = ReadAloudVisualPositioner.shouldSyncVisualPageBeforeUserScroll(
+    fun matchingRenderBaseDoesNotChangeReadBookAtUserScrollHandoff() {
+        val target = ReadAloudVisualPositioner.resolveUserScrollHandoff(
             readAloudFollowActive = true,
-            visualChapterIndex = 213,
-            visualPageIndex = 3,
+            renderBase = ReadAloudVisualPositioner.PageAnchor(213, 3, 9400),
             readBookChapterIndex = 213,
             readBookPageIndex = 3
         )
 
-        assertFalse(shouldSync)
+        assertNull(target)
     }
 
     @Test
-    fun visibleAnchorInDifferentChapterSyncsBeforeUserScroll() {
-        val shouldSync = ReadAloudVisualPositioner.shouldSyncVisualPageBeforeUserScroll(
+    fun materializedRenderBaseInDifferentChapterBecomesUserScrollHandoffTarget() {
+        val renderBase = ReadAloudVisualPositioner.PageAnchor(213, 2, 8200)
+
+        val target = ReadAloudVisualPositioner.resolveUserScrollHandoff(
             readAloudFollowActive = true,
-            visualChapterIndex = 213,
-            visualPageIndex = 2,
+            renderBase = renderBase,
             readBookChapterIndex = 214,
             readBookPageIndex = 0
         )
 
-        assertTrue(shouldSync)
+        assertEquals(renderBase, target)
     }
 
     @Test

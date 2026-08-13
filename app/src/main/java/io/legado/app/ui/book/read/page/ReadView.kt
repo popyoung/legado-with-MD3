@@ -19,6 +19,7 @@ import io.legado.app.model.ReadAloud
 import io.legado.app.model.ReadBook
 import io.legado.app.service.BaseReadAloudService
 import io.legado.app.ui.book.read.ContentEditDialog
+import io.legado.app.ui.book.read.ReadAloudManualStepTrigger
 import io.legado.app.ui.book.read.page.api.DataSource
 import io.legado.app.ui.book.read.page.delegate.CoverPageDelegate
 import io.legado.app.ui.book.read.page.delegate.FadePageDelegate
@@ -445,8 +446,8 @@ class ReadView(context: Context, attrs: AttributeSet) :
             2 -> pageDelegate?.prevPageByAnim(defaultAnimationSpeed)
             3 -> ReadBook.moveToNextChapter(true)
             4 -> ReadBook.moveToPrevChapter(upContent = true, toLast = false)
-            5 -> callBack.readAloudPreviousParagraph()
-            6 -> callBack.readAloudNextParagraph()
+            5 -> callBack.readAloudPreviousParagraph(ReadAloudManualStepTrigger.ReadViewAction)
+            6 -> callBack.readAloudNextParagraph(ReadAloudManualStepTrigger.ReadViewAction)
             7 -> callBack.addBookmark()
             8 -> activity?.showDialogFragment(ContentEditDialog())
             9 -> callBack.changeReplaceRuleState()
@@ -817,7 +818,7 @@ class ReadView(context: Context, attrs: AttributeSet) :
         fun openSearchActivity(searchWord: String?)
         fun upSystemUiVisibility()
         fun sureNewProgress(progress: BookProgress)
-        fun readAloudPreviousParagraph()
-        fun readAloudNextParagraph()
+        fun readAloudPreviousParagraph(trigger: ReadAloudManualStepTrigger)
+        fun readAloudNextParagraph(trigger: ReadAloudManualStepTrigger)
     }
 }

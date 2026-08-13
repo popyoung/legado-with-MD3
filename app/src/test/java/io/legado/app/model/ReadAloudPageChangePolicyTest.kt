@@ -1,5 +1,6 @@
 package io.legado.app.model
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -64,5 +65,35 @@ class ReadAloudPageChangePolicyTest {
         )
 
         assertTrue(shouldRefresh)
+    }
+
+    @Test
+    fun asyncRestoreCompletionKeepsItsRestoreToken() {
+        val origin = ReadAloudPageChangePolicy.resolveOrigin(
+            scopedOrigin = null,
+            pendingOrigin = ReadAloudPageChangeOrigin.Restore(41L)
+        )
+
+        assertEquals(ReadAloudPageChangeOrigin.Restore(41L), origin)
+    }
+
+    @Test
+    fun explicitAsyncRestoreOriginWinsOverUnrelatedProgrammaticScope() {
+        val origin = ReadAloudPageChangePolicy.resolveOrigin(
+            scopedOrigin = ReadAloudPageChangeOrigin.Programmatic,
+            pendingOrigin = ReadAloudPageChangeOrigin.Restore(41L)
+        )
+
+        assertEquals(ReadAloudPageChangeOrigin.Restore(41L), origin)
+    }
+
+    @Test
+    fun ordinaryPageChangeDefaultsToUserOrigin() {
+        val origin = ReadAloudPageChangePolicy.resolveOrigin(
+            scopedOrigin = null,
+            pendingOrigin = null
+        )
+
+        assertEquals(ReadAloudPageChangeOrigin.User, origin)
     }
 }

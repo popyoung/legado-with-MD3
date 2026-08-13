@@ -272,6 +272,11 @@ class ReadAloudVisualCoordinatorTest {
     @Test
     fun manualStepUsesPlaybackWhenVisible() {
         val coordinator = detachedCoordinator()
+        val visualTarget = visualTarget(
+            chapterIndex = 225,
+            pageIndex = 14,
+            chapterPosition = 5856
+        )
 
         val effects = coordinator.reduce(
             ReadAloudVisualCoordinator.Event.ManualStepRequested(
@@ -279,14 +284,16 @@ class ReadAloudVisualCoordinatorTest {
                     cursor(chapterIndex = 226, chapterStart = 131, sequence = 8),
                     paragraphVisible = true
                 ),
-                visualPositionEnabled = true
+                visualPositionEnabled = true,
+                visualTarget = visualTarget
             )
         ).effects
 
         assertTrue(
             effects.contains(
                 ReadAloudVisualCoordinator.Effect.StepFrom(
-                    ReadAloudVisualCoordinator.ManualStepSource.PlaybackCursor
+                    source = ReadAloudVisualCoordinator.ManualStepSource.PlaybackCursor,
+                    visualTarget = null
                 )
             )
         )
@@ -295,6 +302,11 @@ class ReadAloudVisualCoordinatorTest {
     @Test
     fun manualStepUsesVisualCenterOnlyWhenPlaybackIsHidden() {
         val coordinator = detachedCoordinator()
+        val visualTarget = visualTarget(
+            chapterIndex = 225,
+            pageIndex = 14,
+            chapterPosition = 5856
+        )
 
         val effects = coordinator.reduce(
             ReadAloudVisualCoordinator.Event.ManualStepRequested(
@@ -302,14 +314,41 @@ class ReadAloudVisualCoordinatorTest {
                     cursor(chapterIndex = 226, chapterStart = 131, sequence = 8),
                     paragraphVisible = false
                 ),
-                visualPositionEnabled = true
+                visualPositionEnabled = true,
+                visualTarget = visualTarget
             )
         ).effects
 
         assertTrue(
             effects.contains(
                 ReadAloudVisualCoordinator.Effect.StepFrom(
-                    ReadAloudVisualCoordinator.ManualStepSource.VisualCenter
+                    source = ReadAloudVisualCoordinator.ManualStepSource.VisualCenter,
+                    visualTarget = visualTarget
+                )
+            )
+        )
+    }
+
+    @Test
+    fun missingVisualTargetFallsBackToPlaybackCursor() {
+        val coordinator = detachedCoordinator()
+
+        val effects = coordinator.reduce(
+            ReadAloudVisualCoordinator.Event.ManualStepRequested(
+                presentation(
+                    cursor(chapterIndex = 226, chapterStart = 131, sequence = 8),
+                    paragraphVisible = false
+                ),
+                visualPositionEnabled = true,
+                visualTarget = null
+            )
+        ).effects
+
+        assertTrue(
+            effects.contains(
+                ReadAloudVisualCoordinator.Effect.StepFrom(
+                    source = ReadAloudVisualCoordinator.ManualStepSource.PlaybackCursor,
+                    visualTarget = null
                 )
             )
         )
@@ -358,4 +397,16 @@ class ReadAloudVisualCoordinatorTest {
         pageIndex: Int,
         chapterPosition: Int
     ) = ReadAloudViewport(chapterIndex, pageIndex, chapterPosition)
+
+    private fun visualTarget(
+        chapterIndex: Int,
+        pageIndex: Int,
+        chapterPosition: Int
+    ) = ReadAloudVisualTarget(
+        chapterIndex = chapterIndex,
+        pageIndex = pageIndex,
+        chapterPosition = chapterPosition,
+        pagePosition = 456,
+        paragraphNum = 12
+    )
 }
