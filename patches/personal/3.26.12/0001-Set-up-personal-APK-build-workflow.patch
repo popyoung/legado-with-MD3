@@ -1,4 +1,4 @@
-From b331a1ca4f31a5cd6ad02bc260f13f9bf99dd0e0 Mon Sep 17 00:00:00 2001
+From 95a954e21f4301c91e332d7d001ee4590e98b2a2 Mon Sep 17 00:00:00 2001
 From: popyoung <popyoung@163.com>
 Date: Thu, 6 Aug 2026 01:49:08 +0800
 Subject: [PATCH 1/5] Set up personal APK build workflow
@@ -200,14 +200,14 @@ index 1343b12df..0a80cb403 100644
      implementation(libs.kotlin.stdlib)
      implementation(libs.kotlinx.collections.immutable)
 diff --git a/app/version.properties b/app/version.properties
-index d0bcfc9a8..2faa878d9 100644
+index d0bcfc9a8..f2a0ade4f 100644
 --- a/app/version.properties
 +++ b/app/version.properties
 @@ -1,5 +1,6 @@
  VERSION_MAJOR=3
  VERSION_MINOR=26
  VERSION_PATCH=12
-+VERSION_PERSONAL=10
++VERSION_PERSONAL=11
  VERSION_SUFFIX=0
 -# 1 = Pre, 0 = Release
 \ No newline at end of file

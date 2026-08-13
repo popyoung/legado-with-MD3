@@ -1,4 +1,4 @@
-From acb5a77317b50f982ddcef13c1eb0ab8aa86b220 Mon Sep 17 00:00:00 2001
+From f9765eeb8227256429ff01c28930f1c0460e62af Mon Sep 17 00:00:00 2001
 From: popyoung <popyoung@163.com>
 Date: Thu, 6 Aug 2026 01:50:49 +0800
 Subject: [PATCH 4/5] Add TTS visual position controls
@@ -7,13 +7,13 @@ Subject: [PATCH 4/5] Add TTS visual position controls
  .../main/java/io/legado/app/constant/PreferKey.kt   |  1 +
  .../java/io/legado/app/help/config/AppConfig.kt     |  3 +++
  .../ui/book/read/config/ReadAloudConfigDialog.kt    |  9 +++++++++
- .../app/ui/book/read/config/ReadAloudDialog.kt      |  8 +++++---
+ .../app/ui/book/read/config/ReadAloudDialog.kt      | 13 ++++++++++---
  app/src/main/res/values-zh-rCN/strings.xml          |  2 ++
  app/src/main/res/values-zh-rHK/strings.xml          |  2 ++
  app/src/main/res/values-zh-rTW/strings.xml          |  2 ++
  app/src/main/res/values/strings.xml                 |  4 ++++
  app/src/main/res/xml/pref_config_aloud.xml          | 13 +++++++++++++
- 9 files changed, 41 insertions(+), 3 deletions(-)
+ 9 files changed, 46 insertions(+), 3 deletions(-)
 
 diff --git a/app/src/main/java/io/legado/app/constant/PreferKey.kt b/app/src/main/java/io/legado/app/constant/PreferKey.kt
 index 050a0fb05..f70e1e602 100644
@@ -76,26 +76,38 @@ index 8d15ab380..30d7fc410 100644
              return super.onPreferenceTreeClick(preference)
          }
 diff --git a/app/src/main/java/io/legado/app/ui/book/read/config/ReadAloudDialog.kt b/app/src/main/java/io/legado/app/ui/book/read/config/ReadAloudDialog.kt
-index 631765bb2..b6f55687f 100644
+index 631765bb2..d132d6e11 100644
 --- a/app/src/main/java/io/legado/app/ui/book/read/config/ReadAloudDialog.kt
 +++ b/app/src/main/java/io/legado/app/ui/book/read/config/ReadAloudDialog.kt
-@@ -108,8 +108,8 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
+@@ -17,6 +17,7 @@ import io.legado.app.lib.dialogs.selector
+ import io.legado.app.model.ReadAloud
+ import io.legado.app.model.ReadBook
+ import io.legado.app.service.BaseReadAloudService
++import io.legado.app.ui.book.read.ReadAloudManualStepTrigger
+ import io.legado.app.ui.book.read.ReadBookActivity
+ import io.legado.app.utils.getPrefBoolean
+ import io.legado.app.utils.observeEvent
+@@ -108,8 +109,12 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
              dismissAllowingStateLoss()
          }
          ivPlayPause.setOnClickListener { callBack?.onClickReadAloud() }
 -        ivPlayPrev.setOnClickListener { ReadAloud.prevParagraph(requireContext()) }
 -        ivPlayNext.setOnClickListener { ReadAloud.nextParagraph(requireContext()) }
-+        ivPlayPrev.setOnClickListener { callBack?.readAloudPreviousParagraph() }
-+        ivPlayNext.setOnClickListener { callBack?.readAloudNextParagraph() }
++        ivPlayPrev.setOnClickListener {
++            callBack?.readAloudPreviousParagraph(ReadAloudManualStepTrigger.Dialog)
++        }
++        ivPlayNext.setOnClickListener {
++            callBack?.readAloudNextParagraph(ReadAloudManualStepTrigger.Dialog)
++        }
          ivCatalog.setOnClickListener { callBack?.openChapterList() }
          ivToBackstage.setOnClickListener { callBack?.finish() }
          cbTtsFollowSys.setOnCheckedChangeListener { _, isChecked ->
-@@ -256,6 +256,8 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
+@@ -256,6 +261,8 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
          fun showMenuBar()
          fun openChapterList()
          fun onClickReadAloud()
-+        fun readAloudPreviousParagraph()
-+        fun readAloudNextParagraph()
++        fun readAloudPreviousParagraph(trigger: ReadAloudManualStepTrigger)
++        fun readAloudNextParagraph(trigger: ReadAloudManualStepTrigger)
          fun finish()
      }
 -}

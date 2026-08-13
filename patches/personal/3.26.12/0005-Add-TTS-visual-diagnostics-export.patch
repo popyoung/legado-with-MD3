@@ -1,4 +1,4 @@
-From 2e28a9c763343036e6fc1ac04dbdcc0afaffb0cb Mon Sep 17 00:00:00 2001
+From 4114c54e469fbfb3ff1d08c8c1a0cd10b6829a38 Mon Sep 17 00:00:00 2001
 From: popyoung <popyoung@163.com>
 Date: Thu, 6 Aug 2026 01:51:10 +0800
 Subject: [PATCH 5/5] Add TTS visual diagnostics export

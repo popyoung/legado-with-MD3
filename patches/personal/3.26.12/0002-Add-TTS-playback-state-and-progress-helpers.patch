@@ -1,4 +1,4 @@
-From 446a38b30fb144bfd9e2529e402c84792a393780 Mon Sep 17 00:00:00 2001
+From bbbd093d39dd0b4b685b55cb96a23cd509f9d980 Mon Sep 17 00:00:00 2001
 From: popyoung <popyoung@163.com>
 Date: Thu, 6 Aug 2026 01:49:37 +0800
 Subject: [PATCH 2/5] Add TTS playback state and progress helpers
@@ -6,16 +6,18 @@ Subject: [PATCH 2/5] Add TTS playback state and progress helpers
 ---
  .../java/io/legado/app/constant/EventBus.kt   |   1 +
  .../io/legado/app/help/coroutine/Coroutine.kt |   4 +
- .../app/model/ReadAloudPageChangePolicy.kt    |  26 +++
- .../main/java/io/legado/app/model/ReadBook.kt | 163 +++++++++++++--
- .../app/service/BaseReadAloudService.kt       | 195 ++++++++++++++++--
+ .../app/model/ReadAloudPageChangeOrigin.kt    |   7 +
+ .../app/model/ReadAloudPageChangePolicy.kt    |  33 +++
+ .../main/java/io/legado/app/model/ReadBook.kt | 203 +++++++++++++++---
+ .../app/service/BaseReadAloudService.kt       | 195 +++++++++++++++--
  .../app/service/HttpReadAloudService.kt       |   1 -
  .../app/service/ReadAloudPlaybackCursor.kt    |   7 +
  .../legado/app/service/ReadAloudProgress.kt   |  38 ++++
  .../legado/app/service/TTSReadAloudService.kt |  27 ++-
- .../model/ReadAloudPageChangePolicyTest.kt    |  68 ++++++
+ .../model/ReadAloudPageChangePolicyTest.kt    |  99 +++++++++
  .../app/service/ReadAloudProgressTest.kt      |  56 +++++
- 11 files changed, 541 insertions(+), 45 deletions(-)
+ 12 files changed, 623 insertions(+), 48 deletions(-)
+ create mode 100644 app/src/main/java/io/legado/app/model/ReadAloudPageChangeOrigin.kt
  create mode 100644 app/src/main/java/io/legado/app/model/ReadAloudPageChangePolicy.kt
  create mode 100644 app/src/main/java/io/legado/app/service/ReadAloudPlaybackCursor.kt
  create mode 100644 app/src/main/java/io/legado/app/service/ReadAloudProgress.kt
@@ -49,15 +51,35 @@ index f2bb9ed08..18a7a7ba1 100644
      fun start() {
          job.start()
      }
+diff --git a/app/src/main/java/io/legado/app/model/ReadAloudPageChangeOrigin.kt b/app/src/main/java/io/legado/app/model/ReadAloudPageChangeOrigin.kt
+new file mode 100644
+index 000000000..8b55b1582
+--- /dev/null
++++ b/app/src/main/java/io/legado/app/model/ReadAloudPageChangeOrigin.kt
+@@ -0,0 +1,7 @@
++package io.legado.app.model
++
++sealed interface ReadAloudPageChangeOrigin {
++    data object User : ReadAloudPageChangeOrigin
++    data object Programmatic : ReadAloudPageChangeOrigin
++    data class Restore(val token: Long) : ReadAloudPageChangeOrigin
++}
 diff --git a/app/src/main/java/io/legado/app/model/ReadAloudPageChangePolicy.kt b/app/src/main/java/io/legado/app/model/ReadAloudPageChangePolicy.kt
 new file mode 100644
-index 000000000..30f8355f2
+index 000000000..68ccee0c0
 --- /dev/null
 +++ b/app/src/main/java/io/legado/app/model/ReadAloudPageChangePolicy.kt
-@@ -0,0 +1,26 @@
+@@ -0,0 +1,33 @@
 +package io.legado.app.model
 +
 +internal object ReadAloudPageChangePolicy {
++
++    fun resolveOrigin(
++        scopedOrigin: ReadAloudPageChangeOrigin?,
++        pendingOrigin: ReadAloudPageChangeOrigin?
++    ): ReadAloudPageChangeOrigin {
++        return pendingOrigin ?: scopedOrigin ?: ReadAloudPageChangeOrigin.User
++    }
 +
 +    @Suppress("UNUSED_PARAMETER")
 +    fun shouldRestartPausedServiceFromVisualPage(
@@ -82,36 +104,67 @@ index 000000000..30f8355f2
 +    }
 +}
 diff --git a/app/src/main/java/io/legado/app/model/ReadBook.kt b/app/src/main/java/io/legado/app/model/ReadBook.kt
-index ea7c6f405..68175b28e 100644
+index ea7c6f405..48a5f9dfc 100644
 --- a/app/src/main/java/io/legado/app/model/ReadBook.kt
 +++ b/app/src/main/java/io/legado/app/model/ReadBook.kt
-@@ -103,6 +103,25 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
+@@ -84,6 +84,7 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
+     private val loadingChapters = arrayListOf<Int>()
+     private val readRecord = ReadRecord()
+     private val chapterLoadingJobs = ConcurrentHashMap<Int, Coroutine<*>>()
++    private val pendingPageChangeOrigins = ConcurrentHashMap<Int, ReadAloudPageChangeOrigin>()
+     private val prevChapterLoadingLock = Mutex()
+     private val curChapterLoadingLock = Mutex()
+     private val nextChapterLoadingLock = Mutex()
+@@ -103,6 +104,40 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
      val preDownloadSemaphore = Semaphore(2)
  
      val executor = globalExecutor
-+    private var readAloudPageChangeDepth = 0
++    private var scopedPageChangeOrigin: ReadAloudPageChangeOrigin? = null
 +
 +    fun <T> withReadAloudPageChange(block: () -> T): T {
-+        readAloudPageChangeDepth++
++        return withPageChangeOrigin(ReadAloudPageChangeOrigin.Programmatic, block)
++    }
++
++    fun <T> withPageChangeOrigin(
++        origin: ReadAloudPageChangeOrigin,
++        block: () -> T
++    ): T {
++        val previousOrigin = scopedPageChangeOrigin
++        scopedPageChangeOrigin = origin
 +        return try {
 +            block()
 +        } finally {
-+            readAloudPageChangeDepth--
++            scopedPageChangeOrigin = previousOrigin
 +        }
 +    }
 +
++    fun clearPendingPageChangeOrigin(origin: ReadAloudPageChangeOrigin) {
++        pendingPageChangeOrigins.entries
++            .filter { it.value == origin }
++            .forEach { pendingPageChangeOrigins.remove(it.key, origin) }
++    }
++
 +    suspend fun <T> withReadAloudPageChangeAwait(block: suspend () -> T): T {
-+        readAloudPageChangeDepth++
++        val previousOrigin = scopedPageChangeOrigin
++        scopedPageChangeOrigin = ReadAloudPageChangeOrigin.Programmatic
 +        return try {
 +            block()
 +        } finally {
-+            readAloudPageChangeDepth--
++            scopedPageChangeOrigin = previousOrigin
 +        }
 +    }
  
      private val ioScope = CoroutineScope(IO)
  
-@@ -431,7 +450,7 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
+@@ -143,6 +178,7 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
+             downloadedChapters.clear()
+             downloadFailChapters.clear()
+         }
++        pendingPageChangeOrigins.clear()
+     }
+ 
+     fun upData(book: Book) {
+@@ -431,7 +467,7 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
              prevTextChapter = curTextChapter
              curTextChapter = nextTextChapter
              nextTextChapter = null
@@ -120,7 +173,7 @@ index ea7c6f405..68175b28e 100644
                  AppLog.putDebug("moveToNextChapter-章节未加载,开始加载")
                  if (upContentInPlace) callBack?.upContent()
                  loadContent(durChapterIndex, upContent, resetPageOffset = false)
-@@ -462,7 +481,7 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
+@@ -462,7 +498,7 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
              prevTextChapter = curTextChapter
              curTextChapter = nextTextChapter
              nextTextChapter = null
@@ -129,7 +182,7 @@ index ea7c6f405..68175b28e 100644
                  AppLog.putDebug("moveToNextChapter-章节未加载,开始加载")
                  if (upContentInPlace) callBack?.upContentAwait()
                  loadContentAwait(durChapterIndex, upContent, resetPageOffset = false)
-@@ -510,8 +529,42 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
+@@ -510,8 +546,42 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
          }
      }
  
@@ -174,7 +227,7 @@ index ea7c6f405..68175b28e 100644
          callBack?.upContent {
              success?.invoke()
          }
-@@ -519,9 +572,42 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
+@@ -519,9 +589,42 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
          saveRead(true)
      }
  
@@ -219,13 +272,38 @@ index ea7c6f405..68175b28e 100644
          saveRead(true)
          curPageChanged(true)
      }
-@@ -563,9 +649,16 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
+@@ -545,9 +648,15 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
+         index: Int,
+         durChapterPos: Int = 0,
+         upContent: Boolean = true,
++        pageChangeOrigin: ReadAloudPageChangeOrigin = ReadAloudPageChangeOrigin.User,
+         success: (() -> Unit)? = null
+     ) {
+         if (index < chapterSize) {
++            if (pageChangeOrigin == ReadAloudPageChangeOrigin.User) {
++                pendingPageChangeOrigins.remove(index)
++            } else {
++                pendingPageChangeOrigins[index] = pageChangeOrigin
++            }
+             clearTextChapter()
+             if (upContent) callBack?.upContent()
+             durChapterIndex = index
+@@ -562,10 +671,24 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
+     /**
       * 当前页面变化
       */
-     private fun curPageChanged(pageChanged: Boolean = false) {
+-    private fun curPageChanged(pageChanged: Boolean = false) {
 -        callBack?.pageChanged()
-+        val fromReadAloud = readAloudPageChangeDepth > 0
-+        callBack?.pageChanged(fromReadAloud)
++    private fun curPageChanged(
++        pageChanged: Boolean = false,
++        pendingOrigin: ReadAloudPageChangeOrigin? = null
++    ) {
++        val origin = ReadAloudPageChangePolicy.resolveOrigin(
++            scopedOrigin = scopedPageChangeOrigin,
++            pendingOrigin = pendingOrigin
++        )
++        val fromReadAloud = origin != ReadAloudPageChangeOrigin.User
++        callBack?.pageChanged(origin)
          curTextChapter?.let {
 -            if (BaseReadAloudService.isRun && it.isCompleted) {
 +            if (ReadAloudPageChangePolicy.shouldRestartPausedServiceFromVisualPage(
@@ -238,7 +316,7 @@ index ea7c6f405..68175b28e 100644
                  val scrollPageAnim = pageAnim() == 3
                  if (scrollPageAnim && pageChanged) {
                      ReadAloud.pause(appCtx)
-@@ -581,11 +674,15 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
+@@ -581,11 +704,15 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
      /**
       * 朗读
       */
@@ -256,7 +334,7 @@ index ea7c6f405..68175b28e 100644
          }
      }
  
-@@ -702,24 +799,46 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
+@@ -702,24 +829,46 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
          resetPageOffset: Boolean = false,
          success: (() -> Unit)? = null
      ) = withContext(IO) {
@@ -314,12 +392,34 @@ index ea7c6f405..68175b28e 100644
      private suspend fun downloadIndex(index: Int) {
          if (index < 0) return
          if (index > chapterSize - 1) {
-@@ -1156,7 +1275,7 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
+@@ -845,7 +994,9 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
+                         callBack?.onLayoutPageCompleted(index, page)
+                     }
+                     if (upContent) callBack?.upContent(offset, !available && resetPageOffset)
+-                    curPageChanged()
++                    curPageChanged(
++                        pendingOrigin = pendingPageChangeOrigins.remove(chapter.index)
++                    )
+                     callBack?.contentLoadFinish()
+                 }
+ 
+@@ -950,7 +1101,9 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
+                         callBack?.onLayoutPageCompleted(index, page)
+                     }
+                     if (upContent) callBack?.upContent(offset, !available && resetPageOffset)
+-                    curPageChanged()
++                    curPageChanged(
++                        pendingOrigin = pendingPageChangeOrigins.remove(chapter.index)
++                    )
+                     callBack?.contentLoadFinish()
+                 }
+ 
+@@ -1156,7 +1309,7 @@ object ReadBook : CoroutineScope by MainScope(), KoinComponent {
              success: (() -> Unit)? = null
          )
  
 -        fun pageChanged()
-+        fun pageChanged(fromReadAloud: Boolean)
++        fun pageChanged(origin: ReadAloudPageChangeOrigin)
  
          fun contentLoadFinish()
  
@@ -763,12 +863,13 @@ index bf93e315f..20943d36b 100644
 +}
 diff --git a/app/src/test/java/io/legado/app/model/ReadAloudPageChangePolicyTest.kt b/app/src/test/java/io/legado/app/model/ReadAloudPageChangePolicyTest.kt
 new file mode 100644
-index 000000000..3859e0ed2
+index 000000000..e71a4ca76
 --- /dev/null
 +++ b/app/src/test/java/io/legado/app/model/ReadAloudPageChangePolicyTest.kt
-@@ -0,0 +1,68 @@
+@@ -0,0 +1,99 @@
 +package io.legado.app.model
 +
++import org.junit.Assert.assertEquals
 +import org.junit.Assert.assertFalse
 +import org.junit.Assert.assertTrue
 +import org.junit.Test
@@ -833,6 +934,36 @@ index 000000000..3859e0ed2
 +        )
 +
 +        assertTrue(shouldRefresh)
++    }
++
++    @Test
++    fun asyncRestoreCompletionKeepsItsRestoreToken() {
++        val origin = ReadAloudPageChangePolicy.resolveOrigin(
++            scopedOrigin = null,
++            pendingOrigin = ReadAloudPageChangeOrigin.Restore(41L)
++        )
++
++        assertEquals(ReadAloudPageChangeOrigin.Restore(41L), origin)
++    }
++
++    @Test
++    fun explicitAsyncRestoreOriginWinsOverUnrelatedProgrammaticScope() {
++        val origin = ReadAloudPageChangePolicy.resolveOrigin(
++            scopedOrigin = ReadAloudPageChangeOrigin.Programmatic,
++            pendingOrigin = ReadAloudPageChangeOrigin.Restore(41L)
++        )
++
++        assertEquals(ReadAloudPageChangeOrigin.Restore(41L), origin)
++    }
++
++    @Test
++    fun ordinaryPageChangeDefaultsToUserOrigin() {
++        val origin = ReadAloudPageChangePolicy.resolveOrigin(
++            scopedOrigin = null,
++            pendingOrigin = null
++        )
++
++        assertEquals(ReadAloudPageChangeOrigin.User, origin)
 +    }
 +}
 diff --git a/app/src/test/java/io/legado/app/service/ReadAloudProgressTest.kt b/app/src/test/java/io/legado/app/service/ReadAloudProgressTest.kt
